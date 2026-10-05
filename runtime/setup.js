@@ -59,6 +59,10 @@ module.exports = function createSetup(ctx) {
       sound: { enabled: !!sound.enabled, tvInput: sound.tvInput || 'audio1', appInput: sound.appInput || '',
         default: sound.default || null, rules: rulesForPage, seen: sound.seen || [] }
     }).replace(/</g, '\\u003c');
+    var volNames = { amp: 'Receiver display (as on the front panel)', percent: 'Percent of the receiver range (as in the MusicCast app)', percent1: 'Percent with one decimal (shows every step)', db: 'Decibels' };
+    var volModes = ctx.volumeModes.map(function (m) {
+      return '<option value="' + m + '"' + (m === s.volumeDisplay ? ' selected' : '') + '>' + volNames[m] + '</option>';
+    }).join('');
     var corners = ctx.corners.map(function (c) {
       return '<option value="' + c + '"' + (c === s.corner ? ' selected' : '') + '>' + c.replace('-', ' ') + '</option>';
     }).join('');
@@ -91,6 +95,7 @@ module.exports = function createSetup(ctx) {
       '<h2>Display</h2><div class="check"><input id="autoInfo" type="checkbox"' + (s.autoInfo ? ' checked' : '') + '>' +
       '<label for="autoInfo" style="margin:0">Show the info bar by itself when the stream or amp info changes</label></div>' +
       '<label for="corner">Info bar position</label><select id="corner">' + corners + '</select>' +
+      '<label for="volMode">Volume number</label><select id="volMode">' + volModes + '</select>' +
       '<h2>Sound program per app (Yamaha)</h2>' +
       '<p>Choose the receiver sound program for each app or input. LG apps (installed on this TV), Live TV and HDMI inputs are detected on the TV; Apple TV apps are sent by Home Assistant (see docs/HOME-ASSISTANT.md). A rule picked as an LG app only applies to the LG app, and one picked as an Apple TV app only to the Apple TV, so the two Netflix entries can differ. The receiver is only changed while it is on the input below.</p>' +
       '<div class="check"><input id="sEnabled" type="checkbox"><label for="sEnabled" style="margin:0">Switch the sound program automatically</label></div>' +
@@ -153,7 +158,7 @@ module.exports = function createSetup(ctx) {
       'var sel=k[0].children[0],txt=k[0].children[1],kind="any",name;if(sel.value==="__other"){name=txt.value}else{var i=sel.value.indexOf("|");kind=sel.value.slice(0,i);name=sel.value.slice(i+1)}rules.push({app:name.trim(),kind:kind,program:k[1].value,decoder:k[2].value})});' +
       'return{enabled:$("sEnabled").checked,tvInput:$("sTv").value,appInput:$("sAppIn").value,default:{program:$("dProg").value,decoder:$("dDec").value},rules:rules}}' +
       'function body(){var b={ampHost:$("ampHost").value.trim(),ampPort:$("ampPort").value,plexUrl:$("plexUrl").value.trim(),plexToken:$("plexToken").value,' +
-      'plexPlayer:$("plexPlayer").value.trim(),autoInfo:$("autoInfo").checked,corner:$("corner").value,sound:collect()};if($("plexClear"))b.plexClear=$("plexClear").checked;return b}' +
+      'plexPlayer:$("plexPlayer").value.trim(),autoInfo:$("autoInfo").checked,corner:$("corner").value,volumeDisplay:$("volMode").value,sound:collect()};if($("plexClear"))b.plexClear=$("plexClear").checked;return b}' +
       'function post(p,b){return fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})}).then(function(r){return r.json()})}' +
       '$("save").onclick=function(){say("Saving...",true);post("/setup/save",body()).then(function(j){if(j.ok){say("Saved.",true);window.setTimeout(function(){location.reload()},700)}else say(j.error||"Could not save",false)}).catch(function(){say("Request failed",false)})};' +
       '$("testAmp").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"amp",host:b.ampHost,port:b.ampPort}).then(function(j){say(j.ok?"Receiver found: "+j.model+(j.version?" (API "+j.version+")":""):(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
@@ -225,6 +230,10 @@ module.exports = function createSetup(ctx) {
       out.corner = b.corner;
     }
     if (b.autoInfo !== undefined) out.autoInfo = !!b.autoInfo;
+    if (b.volumeDisplay !== undefined) {
+      if (ctx.volumeModes.indexOf(b.volumeDisplay) < 0) return { error: 'Unknown volume display' };
+      out.volumeDisplay = b.volumeDisplay;
+    }
     if (b.sound !== undefined) {
       var sv = ctx.profiles.validate(b.sound);
       if (sv.error) return { error: sv.error };

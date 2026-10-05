@@ -4,3 +4,5 @@
 runtime/91-earc-volume-overlay text eol=lf
 *.png binary
 *.ipk binary
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

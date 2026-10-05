@@ -36,6 +36,9 @@ cd webos-av-overlay
 TV_HOST=root@TV_IP_ADDRESS TV_SSH_KEY=/path/to/key sh scripts/install.sh
 ```
 
+**On Windows**, unpack the release archive and double-click `Install-AVOverlay.cmd` (no Git Bash or Node needed, only the
+built-in OpenSSH Client), or run `scripts\install.ps1`; it asks the same questions.
+
 The installer builds two packages (the overlay and the **AV Overlay Settings** launcher app), installs them,
 asks a few questions, and starts the service:
 

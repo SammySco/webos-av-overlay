@@ -79,7 +79,10 @@ git clone https://github.com/SammySco/webos-av-overlay.git
 cd webos-av-overlay
 TV_HOST=root@TV_IP TV_SSH_KEY=/path/to/your/key sh scripts/install.sh
 ```
-(`TV_SSH_KEY` is optional if your default key works.) On Windows run it in **Git Bash**.
+(`TV_SSH_KEY` is optional if your default key works.) On Windows run it in **Git Bash**, or, with the release archive,
+just double-click **`Install-AVOverlay.cmd`**: it uses Windows PowerShell and the built-in OpenSSH Client, needs no
+Git or Node, and asks the same questions. From a terminal:
+`powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -TvHost root@TV_IP` (add `-SshKey C:\path\to\key` if your key is not the default).
 
 The installer builds two packages, installs them (the overlay and the **AV Overlay** settings icon), and asks:
 - **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there.

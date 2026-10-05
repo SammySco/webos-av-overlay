@@ -14,7 +14,8 @@ ARCHIVE="dist/$NAME.tar.gz"
 rm -rf "$STAGE" "$ARCHIVE"
 mkdir -p "$STAGE/build" "$STAGE/scripts"
 cp build/com.sammysco.avoverlay_${VERSION}_all.ipk build/com.sammysco.avoverlay.settings_${VERSION}_all.ipk "$STAGE/build/"
-cp scripts/install.sh scripts/uninstall.sh "$STAGE/scripts/"
+cp scripts/install.sh scripts/install.ps1 scripts/uninstall.sh "$STAGE/scripts/"
+cp Install-AVOverlay.cmd "$STAGE/"
 cp README.md LICENSE "$STAGE/"
 # install.sh packages from source only when the IPKs are missing, so a release needs just the IPKs and scripts
 (cd "$STAGE" && find . -type f | sort | sed 's|^\./||' > FILES.txt)

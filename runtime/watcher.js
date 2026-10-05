@@ -50,7 +50,7 @@ var COLOUR = { dcip3d65: 'DCI-P3 D65', dcip3theater: 'DCI-P3', bt2020: 'BT.2020'
 var lastVolume = null, lastError = null, inFlight = false, refetch = false;
 var progKey = null, audioKey = null, videoKey = null;
 var profiles = null;
-var state = { plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
+var state = { volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
   volume: null, mute: false, updated: null };
 var plexKey = null, plexInFlight = false;
 var procKey = null;
@@ -58,12 +58,15 @@ var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json'
 var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
 var CORNERS = ['top-left', 'top-right', 'bottom-left'];
 var corner = 'top-left'; // where the info bar sits (the volume popup is bottom-right)
+var VOLUME_MODES = ['amp', 'percent', 'percent1', 'db'];
+var volumeDisplay = 'amp'; // how the volume number is written: the receiver's own display, percent of its range, or decibels
 var soundSettings = null; // per-app sound program rules (see profiles.js)
 var plexSettings = null; // {url, token, player_ip} from the settings file; falls back to the legacy PLEX_CONFIG file
 try {
   var loaded = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
   autoInfo = loaded.autoInfo !== false;
   if (CORNERS.indexOf(loaded.corner) >= 0) corner = loaded.corner;
+  if (VOLUME_MODES.indexOf(loaded.volumeDisplay) >= 0) volumeDisplay = loaded.volumeDisplay;
   if (typeof loaded.ampHost === 'string' && loaded.ampHost) AMP_HOST = loaded.ampHost;
   if (Number(loaded.ampPort) > 0) AMP_PORT = Number(loaded.ampPort);
   if (loaded.plex && typeof loaded.plex === 'object') plexSettings = loaded.plex;
@@ -71,7 +74,7 @@ try {
 } catch (e) {}
 function saveSettings() {
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, ampHost: AMP_HOST, ampPort: AMP_PORT,
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
       plex: plexSettings || undefined, sound: soundSettings || undefined }, null, 1), { mode: 384 }); // 0600: may hold the Plex token
     fs.chmodSync(SETTINGS_FILE, 384);
   } catch (e) { log('settings save failed: ' + e.message); }
@@ -139,11 +142,50 @@ function appLabel() {
   return c.key + (c.kind === 'lg' ? ' (LG app)' : ' (Apple TV)');
 }
 
+// ---------- amp-local sources (TIDAL, net radio, ...): what the receiver itself is playing ----------
+var NET_INPUTS = ['tidal', 'spotify', 'deezer', 'qobuz', 'amazon_music', 'net_radio', 'airplay', 'server', 'mc_link', 'usb', 'napster',
+  'pandora', 'siriusxm', 'juke', 'radiko', 'qq_music', 'soundcloud'];
+var INPUT_NAMES = { tidal: 'TIDAL', net_radio: 'NET RADIO', spotify: 'Spotify', deezer: 'Deezer', qobuz: 'Qobuz', amazon_music: 'Amazon Music',
+  airplay: 'AirPlay', server: 'Server', mc_link: 'MusicCast Link', usb: 'USB', bluetooth: 'Bluetooth', tuner: 'Tuner', napster: 'Napster' };
+function inputLabel(id) {
+  if (!id) return null;
+  if (INPUT_NAMES[id]) return INPUT_NAMES[id];
+  var h = /^hdmi([0-9])$/.exec(id);
+  return h ? 'Receiver HDMI ' + h[1] : String(id).split('_').join(' ');
+}
+// the receiver input the TV's sound arrives on (default audio1, the eARC/ARC input)
+function tvInputId() { return (soundSettings && soundSettings.tvInput) || 'audio1'; }
+
+var nowKey = null, nowInFlight = false, inputKeyed = false;
+function fetchNowPlaying() {
+  if (!state.ampLocal || NET_INPUTS.indexOf(state.ampInput) < 0) {
+    if (state.nowPlaying) { state.nowPlaying = null; nowKey = null; }
+    return;
+  }
+  if (nowInFlight) return;
+  nowInFlight = true;
+  ampGet('/netusb/getPlayInfo', null, function (err, j) {
+    nowInFlight = false;
+    if (err || !j || j.response_code !== 0) return;
+    var who = [j.artist, j.track].filter(function (x) { return !!x; }).join(' - ');
+    var text = who || null;
+    if (text && j.album) text += ' (' + j.album + ')';
+    if (text && j.playback && j.playback !== 'play') text = (j.playback === 'pause' ? 'Paused: ' : 'Stopped: ') + text;
+    var key = [j.input, j.artist, j.track, j.playback].join('|');
+    state.nowPlaying = text;
+    if (nowKey === null) { nowKey = key; }
+    else if (key !== nowKey) { nowKey = key; scheduleInfo('now playing ' + (text || 'nothing')); }
+  });
+}
+
 function launchInfo(pin) {
   var al = appLabel();
-  var segs = [state.source, al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour]
-    .filter(function (x) { return !!x; });
+  var segs = state.ampLocal
+    ? [inputLabel(state.ampInput), state.nowPlaying, state.audio, state.processing]
+    : [state.source, al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour];
+  segs = segs.filter(function (x) { return !!x; });
   var params = { info: { title: state.program || 'Sound program', segs: segs }, corner: corner };
+  log('info bar: ' + (state.program || '') + ' | ' + segs.join(' | '));
   if (pin) { params.pin = true; tvPinned = true; overlayLost = false; }
   else if (tvPinned && overlayLost) return; // the Guide or another system screen closed the bar: do not pop up over it
   launch(params);
@@ -185,7 +227,7 @@ function hideInfo(via) {
 // ---------- pinned bar closed by the Guide / system UI ----------
 // Opening the Guide makes webOS close the overlay window while the watcher still believes it is pinned. Waiting for
 // a channel change (picked in the Guide) and then re-pinning restores it without popping up over the Guide itself.
-var overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null, tickN = 0;
+var lostAt = 0, overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null, tickN = 0;
 var QUIET_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.notification'];
 function lunaJson(uri, cb) { // luna-send needs a pty, hence script(1)
   execFile('/usr/bin/script', ['-q', '-c', LUNA + " -n 1 -f " + uri + " '{}'", '/dev/null'], { timeout: 4000 },
@@ -197,7 +239,7 @@ function pinWatchTick() {
   lunaJson('luna://com.webos.applicationManager/running', function (out) {
     if (!tvPinned || !out) return;
     var present = out.indexOf('"' + APP_ID + '"') >= 0;
-    if (!present && !overlayLost) { overlayLost = true; log('pinned bar went away (Guide or system screen?); waiting for a channel change'); }
+    if (!present && !overlayLost) { overlayLost = true; lostAt = Date.now(); log('pinned bar went away (foreground ' + lastFg + '); waiting for a channel/app change'); }
     if (present) overlayLost = false;
     // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
     // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
@@ -206,6 +248,12 @@ function pinWatchTick() {
       if (!m || !tvPinned) return;
       var prevFg = lastFg;
       lastFg = m[1];
+      // The Guide only exists on Live TV, so on an HDMI input a vanished bar is not the Guide: bring it back
+      // (something else, such as a system pop-up, closed the window).
+      if (overlayLost && m[1].indexOf('com.webos.app.hdmi') === 0 && !restoreTimer) {
+        log('bar vanished on ' + m[1] + ' with no input change; restoring it');
+        restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('bar vanished', true); }, 2500);
+      }
       if (overlayLost && prevFg && prevFg !== m[1] && QUIET_APPS.indexOf(m[1]) < 0) {
         log('foreground app changed to ' + m[1] + ' while the bar was away; restoring it');
         if (restoreTimer) clearTimeout(restoreTimer);
@@ -233,13 +281,18 @@ function esc(t) {
 
 function snapshot() {
   return { program: state.program, volume: state.volume, mute: state.mute, source: state.source, audio: state.audio,
-    plex: state.plex, processing: state.processing, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
+    plex: state.plex, processing: state.processing, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: state.volumeText, ampInput: state.ampInput, ampLocal: state.ampLocal, nowPlaying: state.nowPlaying, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
 }
 
 function infoRows(d) {
+  if (d.ampLocal) { // the receiver is playing its own source: the TV's video and app details would be misleading
+    return [['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
+      ['Receiver input', inputLabel(d.ampInput)], ['Now playing', d.nowPlaying], ['Audio (amp)', d.audio], ['Processing', d.processing]]
+      .filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
+  }
   var rows = [
-    ['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + d.volume + ')' : d.volume)],
+    ['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
     ['Source', d.source], ['App', d.appLabel], ['Audio (amp)', d.audio], ['Plex', d.plex ? d.plex.replace(/^Plex: /, '') : null],
     ['Processing', d.processing], ['Video', d.video], ['Colour', d.colour]
   ];
@@ -287,6 +340,7 @@ function applySettings(v) {
   if (v.ampHost !== undefined && v.ampHost !== AMP_HOST) { AMP_HOST = v.ampHost; ampChanged = true; }
   if (v.ampPort !== undefined && v.ampPort !== AMP_PORT) { AMP_PORT = v.ampPort; ampChanged = true; }
   if (v.corner) corner = v.corner;
+  if (v.volumeDisplay && VOLUME_MODES.indexOf(v.volumeDisplay) >= 0) volumeDisplay = v.volumeDisplay;
   if (v.autoInfo !== undefined) autoInfo = v.autoInfo;
   if (v.sound) soundSettings = v.sound;
   if (v.plexClear) plexSettings = { disabled: true };
@@ -325,9 +379,10 @@ var setupHandler = require('./setup.js')({
   profiles: profiles,
   getSound: function () { return soundSettings; },
   corners: CORNERS,
+  volumeModes: VOLUME_MODES,
   getSettings: function () {
     var p = readPlexConfig();
-    return { ampHost: AMP_HOST, ampPort: AMP_PORT, autoInfo: autoInfo, corner: corner,
+    return { ampHost: AMP_HOST, ampPort: AMP_PORT, autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay,
       plexUrl: p ? p.url : '', plexPlayer: p && p.player_ip ? p.player_ip : '', plexTokenSet: !!p };
   },
   getPlexSecret: function () { return readPlexConfig(); },
@@ -409,6 +464,19 @@ function readVolume(s) {
   return Number(s.volume) / 2;
 }
 
+// The number shown for the volume. 'amp' is what the receiver's display shows; 'percent' is the receiver's raw
+// volume step over its maximum (what apps with a percentage slider show); 'db' is decibels.
+function volumeText(s, value) {
+  var raw = Number(s.volume), max = Number(s.max_volume) || 161;
+  if (volumeDisplay === 'percent' && isFinite(raw)) return Math.round(raw / max * 100) + '%';
+  if (volumeDisplay === 'percent1' && isFinite(raw)) return (raw / max * 100).toFixed(1) + '%'; // one receiver step is 0.6%
+  if (volumeDisplay === 'db') {
+    var av = s.actual_volume, db = (av && av.mode === 'db') ? value : value - 80.5; // numeric 0-97 maps to -80.5 .. +16.5 dB
+    return db.toFixed(1) + ' dB';
+  }
+  return value % 1 ? value.toFixed(1) : String(value);
+}
+
 // Yamaha reports subwoofer trim and tone in 0.5 dB steps
 function dB(steps) {
   var v = (Number(steps) || 0) * 0.5;
@@ -419,11 +487,11 @@ function dB(steps) {
 // repeating it shortly afterwards guarantees the popup appears (a relaunch just refreshes it).
 var volTimer = null;
 function showVolume(value, mute) {
-  launch({ volume: value, mute: mute, output: 'yamaha' });
+  launch({ volume: value, mute: mute, text: state.volumeText, output: 'yamaha' });
   if (volTimer) clearTimeout(volTimer);
   volTimer = setTimeout(function () {
     volTimer = null;
-    launch({ volume: state.volume, mute: state.mute, output: 'yamaha' });
+    launch({ volume: state.volume, mute: state.mute, text: state.volumeText, output: 'yamaha' });
   }, 600);
 }
 
@@ -433,7 +501,7 @@ function handleStatus(s) {
   if (s.power !== 'on') { lastVolume = null; progKey = null; audioKey = null; procKey = null; return; }
 
   var value = readVolume(s), mute = !!s.mute, current = value + ':' + mute;
-  state.volume = value; state.mute = mute; state.updated = new Date();
+  state.volume = value; state.volumeText = volumeText(s, value); state.mute = mute; state.updated = new Date();
   if (lastVolume === null) { lastVolume = current; log('watching ' + AMP_HOST + ' at ' + current); }
   else if (current !== lastVolume) {
     lastVolume = current;
@@ -446,6 +514,17 @@ function handleStatus(s) {
     prog += ' · ' + DECODERS[s.surr_decoder_type];
   }
   state.program = prog;
+
+  var local = !!s.input && s.input !== tvInputId();
+  var inputChanged = s.input !== state.ampInput;
+  state.ampInput = s.input || null;
+  state.ampLocal = local;
+  if (inputChanged) {
+    nowKey = null; state.nowPlaying = null;
+    if (inputKeyed) { scheduleInfo('receiver input ' + (inputLabel(s.input) || 'none')); fetchSignal(); }
+    inputKeyed = true;
+    fetchNowPlaying();
+  }
 
   var proc = [];
   if (s.enhancer) proc.push('Enhancer');
@@ -666,11 +745,12 @@ var sock = dgram.createSocket('udp4');
 sock.on('message', function (msg) {
   try {
     var ev = JSON.parse(String(msg)), m = ev.main;
+    if (ev.netusb && (ev.netusb.play_info_updated || ev.netusb.preset_info_updated)) fetchNowPlaying();
     if (!m) return;
     if (m.signal_info_updated) fetchSignal();
     if (m.volume !== undefined || m.mute !== undefined || m.power !== undefined ||
         m.sound_program !== undefined || m.direct !== undefined || m.enhancer !== undefined ||
-        m.dialogue_level !== undefined || m.subwoofer_volume !== undefined || m.status_updated) fetchStatus(false);
+        m.dialogue_level !== undefined || m.subwoofer_volume !== undefined || m.input !== undefined || m.status_updated) fetchStatus(false);
   } catch (e) {}
 });
 sock.on('error', function (e) { log('udp error: ' + e.message); });
@@ -692,3 +772,4 @@ setInterval(function () { fetchStatus(true); }, RESUBSCRIBE_MS);
 setInterval(function () { fetchStatus(false); }, POLL_MS);
 setInterval(fetchSignal, SIGNAL_POLL_MS);
 setInterval(fetchPlex, PLEX_POLL_MS);
+setInterval(fetchNowPlaying, 4000); // fallback for network sources whose events are missed
