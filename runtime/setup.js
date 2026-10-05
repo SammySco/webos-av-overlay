@@ -102,7 +102,7 @@ module.exports = function createSetup(ctx) {
       '<div class="row stack"><div><label for="sTv">Receiver input the TV is on</label><select id="sTv"></select></div>' +
       '<div><label for="sAppIn">Input the Apple TV is on</label><select id="sAppIn"></select></div></div>' +
       '<label>Default when no rule matches</label><div class="row stack"><div><select id="dProg"></select></div><div><select id="dDec"></select></div></div>' +
-      '<label>Rules</label><div class="filters"><label><input type="checkbox" id="f_live"> Live TV</label><label><input type="checkbox" id="f_inputs"> HDMI inputs</label><label><input type="checkbox" id="f_lg"> LG apps</label><label><input type="checkbox" id="f_atv"> Apple TV apps</label></div>' +
+      '<label>Rules</label><div class="filters"><label><input type="checkbox" id="f_live"> Live TV</label><label><input type="checkbox" id="f_inputs"> HDMI inputs</label><label><input type="checkbox" id="f_lg"> LG apps</label><label><input type="checkbox" id="f_atv"> Apple TV apps</label><label><input type="checkbox" id="f_amp"> Receiver sources</label></div>' +
       '<p style="margin:0 0 6px">Tick what to show in the list below. Hidden rules are still saved and still apply.</p><div id="rules"></div>' +
       '<nav><button id="addRule">Add rule</button><button id="applyNow">Apply now (saved rules)</button></nav>' +
       '<p id="soundNow" style="margin-top:14px"></p>' +
@@ -121,9 +121,9 @@ module.exports = function createSetup(ctx) {
       'opt($("sAppIn"),"","any HDMI input",S.appInput);["HDMI 1","HDMI 2","HDMI 3","HDMI 4"].forEach(function(h){opt($("sAppIn"),h,h,S.appInput)});' +
       '$("sEnabled").checked=S.enabled;fillProg($("dProg"),S.default&&S.default.program);fillDec($("dDec"),S.default&&S.default.decoder);' +
       '$("dProg").onchange=function(){sync($("dProg"),$("dDec"))};sync($("dProg"),$("dDec"));' +
-            'var F={live:true,inputs:true,lg:true,atv:true};' +
+            'var F={live:true,inputs:true,lg:true,atv:true,amp:true};' +
       'try{var sv=JSON.parse(localStorage.getItem("avoFilters")||"{}");Object.keys(F).forEach(function(k){if(sv[k]===false)F[k]=false})}catch(e){}' +
-      'var TAG={input:"",lg:" (LG app)",atv:" (Apple TV)",any:" (any source)"};' +
+      'var TAG={input:"",lg:" (LG app)",atv:" (Apple TV)",amp:" (receiver)",any:" (any source)"};' +
       'function catOf(id){var i=id.indexOf("|"),kind=id.slice(0,i),name=id.slice(i+1);if(kind==="input")return name==="Live TV"?"live":"inputs";return kind}' +
       'function fill(as,cur){' +
       '  while(as.firstChild)as.removeChild(as.firstChild);' +
@@ -135,14 +135,14 @@ module.exports = function createSetup(ctx) {
       '  group("HDMI inputs","input",C.inputs.filter(function(x){return x.value!=="Live TV"}),"inputs");' +
       '  group("LG apps (installed on this TV)","lg",C.tvApps,"lg");' +
       '  group("Apple TV apps (sent by Home Assistant)","atv",C.atv,"atv");' +
-      '  group("Seen recently (any source)","any",C.seen);' +
+      '  group("Receiver\'s own sources (TIDAL, net radio, ...)","amp",C.amp,"amp");group("Seen recently (any source)","any",C.seen);' +
       '  if(cur&&cur!=="__other"&&!have[cur.toLowerCase()]){var g=document.createElement("optgroup");g.label="Current rule";var i=cur.indexOf("|");add(g,cur.slice(0,i),cur.slice(i+1),cur.slice(i+1));as.appendChild(g)}' +
       '  var oo=document.createElement("option");oo.value="__other";oo.textContent="Other (type a name)...";as.appendChild(oo);' +
       '  as.value=cur||""}' +
       'function rowCat(as){return as.value&&as.value!=="__other"?catOf(as.value):"any"}' +
       'function showRow(row){var as=row.children[0].children[0],c=rowCat(as);row.style.display=(c==="any"||F[c])?"":"none"}' +
       'function refreshAll(){Array.prototype.forEach.call($("rules").children,function(row){var as=row.children[0].children[0],cur=as.value;fill(as,cur);showRow(row)})}' +
-      '["live","inputs","lg","atv"].forEach(function(k){var cb=$("f_"+k);cb.checked=F[k];cb.onchange=function(){F[k]=cb.checked;try{localStorage.setItem("avoFilters",JSON.stringify(F))}catch(e){}refreshAll()}});' +
+      '["live","inputs","lg","atv","amp"].forEach(function(k){var cb=$("f_"+k);cb.checked=F[k];cb.onchange=function(){F[k]=cb.checked;try{localStorage.setItem("avoFilters",JSON.stringify(F))}catch(e){}refreshAll()}});' +
       'function addRule(r){r=r||{};var d=document.createElement("div");d.className="rule";' +
       '  var w=document.createElement("div");w.className="appwrap";var as=document.createElement("select");var ai=document.createElement("input");ai.type="text";ai.placeholder="App or input name";ai.style.display="none";' +
       '  var cur=(r.app||"").trim();var ck=cur?(r.kind||"any")+"|"+cur:"";' +

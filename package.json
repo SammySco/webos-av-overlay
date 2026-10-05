@@ -1,6 +1,6 @@
 {
   "name": "webos-earc-volume-overlay",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "private": true,
   "description": "An on-screen eARC volume indicator for rooted LG webOS TVs",
   "license": "MIT",

@@ -21,6 +21,9 @@ var DEFAULT_DECODERS = ['dolby_pl2x_movie', 'dolby_pl2x_music', 'dolby_pl2x_game
 // Apple TV app names as Home Assistant reports them (the "app_name" attribute); the user can type others
 var ATV_APPS = ['Netflix', 'Disney+', 'Prime Video', 'YouTube', 'Stan', 'TV', 'Apple Music', 'Spotify', 'TIDAL', 'Infuse', 'Plex',
   'Kayo', 'BINGE', 'SBS On Demand', '9Now', '10', 'Paramount+', 'Max', 'ABC iview', 'Apple Podcasts', 'Apple Arcade'];
+// the receiver's own sources, named as the overlay names them (see inputLabel in the watcher)
+var AMP_SOURCES = ['TIDAL', 'NET RADIO', 'Spotify', 'AirPlay', 'Bluetooth', 'USB', 'Deezer', 'Qobuz', 'Amazon Music', 'Server',
+  'MusicCast Link', 'Tuner', 'Napster'];
 var SETTLE_MS = 2000;      // wait for the input to settle after a change, as the old Home Assistant automation did
 var FOREGROUND_MS = 2000;
 var SEEN_MAX = 40;
@@ -124,6 +127,7 @@ module.exports = function createProfiles(ctx) {
   // ---------- context ----------
   function contextKey() {
     var c = cfg();
+    if (ampInput && ampInput !== c.tvInput && ctx.inputLabel) return ctx.inputLabel(ampInput); // TIDAL, NET RADIO, ...
     var base = friendly(fg.id);
     if (base && base.indexOf('HDMI') === 0) {
       if (pushed && pushed.name && (!c.appInput || c.appInput === base)) return pushed.name;
@@ -136,6 +140,7 @@ module.exports = function createProfiles(ctx) {
   // Where the key came from: an input ('input'), an app on the Apple TV ('atv', also Plex players) or an LG app ('lg').
   // A rule can be limited to one of these, so "Netflix" on the Apple TV and the LG Netflix app can differ.
   function contextKind() {
+    if (ampInput && ampInput !== cfg().tvInput) return 'amp';
     var base = friendly(fg.id);
     if (!base) return null;
     if (base.indexOf('HDMI') === 0) {
@@ -203,17 +208,20 @@ module.exports = function createProfiles(ctx) {
     var c = cfg();
     if (!c.enabled && !force) return;
     if (busy) { schedule(500); return; }
-    var key = contextKey();
-    if (!key) { note('nothing to match (home screen or unknown input)'); return; }
-    rememberSeen(key);
     busy = true;
     ctx.ampGet('/main/getStatus', function (err, s) {
       var done = function () { busy = false; };
       if (err || !s || s.response_code !== 0) { note('receiver not reachable'); return done(); }
       ampInput = s.input;
       if (s.power !== 'on') { note('receiver is off'); return done(); }
-      if (s.input !== c.tvInput) { note(key + ': receiver is on ' + s.input + ', not ' + c.tvInput + ' - left alone'); return done(); }
+      var key = contextKey();
+      if (!key) { note('nothing to match (home screen or unknown input)'); return done(); }
+      rememberSeen(key);
       var rule = findRule(key, contextKind(), c);
+      if (s.input !== c.tvInput) { // the receiver is playing one of its own sources: only an explicit rule applies, never the default
+        if (!rule) { note(key + ': receiver source with no rule - left alone'); return done(); }
+        return apply(rule, key, rule.app, s, done);
+      }
       var target = rule || c.def;
       if (!target || !target.program) { note(key + ': no rule and no default - left alone'); return done(); }
       apply(target, key, rule ? rule.app : '(default)', s, done);
@@ -257,7 +265,7 @@ module.exports = function createProfiles(ctx) {
     if (!s) return;
     var was = ampInput;
     ampInput = s.input;
-    if (was !== null && was !== s.input && s.input === cfg().tvInput) schedule();
+    if (was !== null && was !== s.input) { noteContext(); schedule(); }
   }
 
   function onPlexApp() { noteContext(); }
@@ -280,7 +288,7 @@ module.exports = function createProfiles(ctx) {
         var name = inputNames['HDMI ' + n];
         inputs.push({ value: 'HDMI ' + n, label: 'HDMI ' + n + (name && name !== 'HDMI ' + n ? ' - ' + name : '') });
       }
-      return { inputs: inputs, tvApps: tvApps.slice(), atv: ATV_APPS.slice(), seen: cfg().seen.slice() };
+      return { inputs: inputs, tvApps: tvApps.slice(), atv: ATV_APPS.slice(), amp: AMP_SOURCES.slice(), seen: cfg().seen.slice() };
     },
     lists: function (cb) { loadFeatures(function () { cb(lists()); }); },
     current: function () {
@@ -324,7 +332,7 @@ module.exports = function createProfiles(ctx) {
         if (!t.value) return { error: 'Rule "' + app + '": choose a sound program' };
         t.value.app = app;
         var kind = String(rules[i].kind || 'any');
-        if (['any', 'input', 'lg', 'atv'].indexOf(kind) < 0) return { error: 'Rule "' + app + '": unknown source type' };
+        if (['any', 'input', 'lg', 'atv', 'amp'].indexOf(kind) < 0) return { error: 'Rule "' + app + '": unknown source type' };
         t.value.kind = kind;
         out.rules.push(t.value);
       }

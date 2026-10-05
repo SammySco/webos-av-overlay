@@ -412,6 +412,7 @@ var profiles = require('./profiles.js')({
   getSound: function () { return soundSettings; },
   setSound: function (o) { soundSettings = o; saveSettings(); },
   getPlexApp: function () { return state.plexApp || null; },
+  inputLabel: inputLabel,
   onContext: function (key, kind) { if (key && (kind === 'lg' || kind === 'atv')) scheduleInfo('app ' + key + (kind === 'lg' ? ' (LG app)' : ' (Apple TV)')); }
 });
 
