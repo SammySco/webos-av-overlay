@@ -1,0 +1,6 @@
+* text=auto
+*.sh text eol=lf
+*.js text eol=lf
+runtime/91-earc-volume-overlay text eol=lf
+*.png binary
+*.ipk binary

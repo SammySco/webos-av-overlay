@@ -1,0 +1,694 @@
+'use strict';
+
+// eARC Volume Overlay watcher - Yamaha MusicCast edition with signal info.
+// Volume: from the receiver (Yamaha Extended Control), event-driven.
+// Info card: sound program + audio signal (from the receiver) and video signal
+// (from the TV's videooutput service), shown whenever any of them changes.
+
+var http = require('http');
+var https = require('https');
+var dgram = require('dgram');
+var spawn = require('child_process').spawn;
+var execFile = require('child_process').execFile;
+var fs = require('fs');
+
+// Settings live in SETTINGS_FILE (written by the installer and the /setup page); environment variables are fallbacks.
+var AMP_HOST = process.env.EARC_AMP_HOST || '';
+var AMP_PORT = Number(process.env.EARC_AMP_PORT) || 80;
+var EVENT_PORT = 41100;
+var POLL_MS = 2000;
+var SIGNAL_POLL_MS = 3000;
+var RESUBSCRIBE_MS = 5 * 60 * 1000;
+var INFO_DEBOUNCE_MS = 1000;
+// Optional Plex source details. Config file (persistent, survives reinstalls):
+//   /home/root/.earc-plex.json  {"url":"http://<server>:32400","token":"<X-Plex-Token>","player_ip":"<apple tv ip, optional>"}
+var PLEX_CONFIG = process.env.EARC_PLEX_CONFIG || '/home/root/.earc-plex.json';
+var PLEX_POLL_MS = 4000;
+var INFO_HTTP_PORT = Number(process.env.EARC_INFO_PORT) || 41101; // GET /info shows the bar on demand
+
+var APP_ID = 'com.sammysco.avoverlay';
+var LOG = '/tmp/earc-volume-overlay.log';
+var LUNA = process.env.EARC_LUNA_SEND || '/usr/bin/luna-send';
+
+var PROGRAMS = {
+  straight: 'Straight', surr_decoder: 'Surround Decoder', '2ch_stereo': '2ch Stereo',
+  '5ch_stereo': '5ch Stereo', '7ch_stereo': '7ch Stereo', standard: 'Standard', 'sci-fi': 'Sci-Fi',
+  spectacle: 'Spectacle', adventure: 'Adventure', drama: 'Drama', mono_movie: 'Mono Movie',
+  music_video: 'Music Video', munich: 'Hall in Munich', vienna: 'Hall in Vienna', chamber: 'Chamber',
+  cellar_club: 'Cellar Club', roxy_theatre: 'The Roxy Theatre', bottom_line: 'The Bottom Line',
+  sports: 'Sports', action_game: 'Action Game', roleplaying_game: 'Roleplaying Game'
+};
+var DECODERS = {
+  dolby_pl2x_movie: 'Dolby PLIIx Movie', dolby_pl2x_music: 'Dolby PLIIx Music',
+  dolby_pl2x_game: 'Dolby PLIIx Game', dts_neo6_cinema: 'DTS Neo:6 Cinema', dts_neo6_music: 'DTS Neo:6 Music'
+};
+var HDR = { dolbyvision: 'Dolby Vision', hdr10: 'HDR10', hdr10plus: 'HDR10+', 'hdr10+': 'HDR10+', hlg: 'HLG',
+  technicolor: 'Technicolor HDR', none: 'SDR', sdr: 'SDR', '': 'SDR' };
+var COLOUR = { dcip3d65: 'DCI-P3 D65', dcip3theater: 'DCI-P3', bt2020: 'BT.2020', bt2020ycc: 'BT.2020',
+  bt2020rgb: 'BT.2020', bt709: 'BT.709', itu709: 'BT.709', bt601: 'BT.601', itu601: 'BT.601', xvycc601: 'xvYCC 601', xvycc709: 'xvYCC 709' };
+
+var lastVolume = null, lastError = null, inFlight = false, refetch = false;
+var progKey = null, audioKey = null, videoKey = null;
+var profiles = null;
+var state = { plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
+  volume: null, mute: false, updated: null };
+var plexKey = null, plexInFlight = false;
+var procKey = null;
+var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
+var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
+var CORNERS = ['top-left', 'top-right', 'bottom-left'];
+var corner = 'top-left'; // where the info bar sits (the volume popup is bottom-right)
+var soundSettings = null; // per-app sound program rules (see profiles.js)
+var plexSettings = null; // {url, token, player_ip} from the settings file; falls back to the legacy PLEX_CONFIG file
+try {
+  var loaded = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+  autoInfo = loaded.autoInfo !== false;
+  if (CORNERS.indexOf(loaded.corner) >= 0) corner = loaded.corner;
+  if (typeof loaded.ampHost === 'string' && loaded.ampHost) AMP_HOST = loaded.ampHost;
+  if (Number(loaded.ampPort) > 0) AMP_PORT = Number(loaded.ampPort);
+  if (loaded.plex && typeof loaded.plex === 'object') plexSettings = loaded.plex;
+  if (loaded.sound && typeof loaded.sound === 'object') soundSettings = loaded.sound;
+} catch (e) {}
+function saveSettings() {
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, ampHost: AMP_HOST, ampPort: AMP_PORT,
+      plex: plexSettings || undefined, sound: soundSettings || undefined }, null, 1), { mode: 384 }); // 0600: may hold the Plex token
+    fs.chmodSync(SETTINGS_FILE, 384);
+  } catch (e) { log('settings save failed: ' + e.message); }
+}
+var infoTimer = null, signalInFlight = false, tvPinned = false; // tvPinned: info bar held on screen (reported by the app)
+
+var LOG_MAX = 256 * 1024, lastLogMsg = null, logRepeats = 0;
+function writeLog(m) {
+  try {
+    if (fs.existsSync(LOG) && fs.statSync(LOG).size > LOG_MAX) fs.renameSync(LOG, LOG + '.1'); // keep one old file
+    fs.appendFileSync(LOG, new Date().toISOString() + ' ' + m + '\n');
+  } catch (e) {}
+}
+function log(m) {
+  if (m === lastLogMsg) { logRepeats++; return; }
+  if (logRepeats) writeLog('(previous line repeated x' + logRepeats + ')');
+  logRepeats = 0; lastLogMsg = m;
+  writeLog(m);
+}
+
+var lastLaunchAt = 0;
+function launch(params, id) {
+  lastLaunchAt = Date.now();
+  execFile(LUNA, ['-n', '1', 'luna://com.webos.applicationManager/launch',
+    JSON.stringify({ id: id || APP_ID, params: params })], function (error) {
+    if (error) log('launch failed: ' + error.message);
+  });
+}
+
+// The overlay swallows a channel key while it dismisses itself; do the channel change through the same
+// networkinput control the LG phone remote uses (socket-injected CHANNELUP/DOWN keys do nothing on this TV).
+function openChannel(number) {
+  execFile(LUNA, ['-n', '1', 'luna://com.webos.service.apiadapter/tv/openChannel', JSON.stringify({ channelNumber: String(number) })], function (error) {
+    if (error) log('open channel failed: ' + error.message);
+  });
+  log('opened channel ' + number);
+}
+
+function changeChannel(up) {
+  var m = up ? 'channelUp' : 'channelDown';
+  execFile(LUNA, ['-n', '1', 'luna://com.webos.service.networkinput/controls/' + m, '{}'], function (error) {
+    if (error) log('channel change failed: ' + error.message);
+  });
+  log('forwarded ' + m);
+}
+
+function ampGet(path, headers, cb) {
+  if (!AMP_HOST) { cb(new Error('amp not configured - open http://<tv>:' + INFO_HTTP_PORT + '/setup')); return; }
+  var req = http.get({ host: AMP_HOST, port: AMP_PORT, path: '/YamahaExtendedControl/v1' + path,
+    headers: headers || {}, timeout: 1500 }, function (res) {
+    var body = '';
+    res.setEncoding('utf8');
+    res.on('data', function (c) { body += c; });
+    res.on('end', function () { var j = null; try { j = JSON.parse(body); } catch (e) {} cb(null, j); });
+  });
+  req.on('timeout', function () { req.destroy(new Error('timeout')); });
+  req.on('error', function (e) { cb(e); });
+}
+
+// ---------- info card ----------
+// "Netflix (LG app)" / "Netflix (Apple TV)" for apps; null for inputs (the source segment already names those)
+function appLabel() {
+  var c = profiles ? profiles.current() : null;
+  if (!c || !c.key || (c.kind !== 'lg' && c.kind !== 'atv')) return null;
+  return c.key + (c.kind === 'lg' ? ' (LG app)' : ' (Apple TV)');
+}
+
+function launchInfo(pin) {
+  var al = appLabel();
+  var segs = [state.source, al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour]
+    .filter(function (x) { return !!x; });
+  var params = { info: { title: state.program || 'Sound program', segs: segs }, corner: corner };
+  if (pin) { params.pin = true; tvPinned = true; overlayLost = false; }
+  else if (tvPinned && overlayLost) return; // the Guide or another system screen closed the bar: do not pop up over it
+  launch(params);
+}
+
+function scheduleInfo(reason, delay, pin, force) {
+  // a bar that is pinned on screen keeps updating even with Auto info off (that setting only stops it popping up)
+  if (!autoInfo && !force && !tvPinned) { log('info change (auto info off): ' + reason); return; }
+  log('info change: ' + reason);
+  if (infoTimer) clearTimeout(infoTimer);
+  infoTimer = setTimeout(function () {
+    infoTimer = null;
+    launchInfo(pin);
+  }, delay === undefined ? INFO_DEBOUNCE_MS : delay);
+}
+
+// On demand: show the bar straight away from the last known state (the app's cold start is the slow
+// part), then refresh from the amp/Plex and update the open bar in place.
+// pin = keep it on screen until hideInfo() (or the Quick Access key) clears it.
+function showInfoNow(via, pin) {
+  log('info change: on demand (' + via + ')');
+  if (infoTimer) { clearTimeout(infoTimer); infoTimer = null; }
+  launchInfo(pin);
+  fetchStatus(false);
+  fetchSignal();
+  fetchPlex();
+  scheduleInfo('on demand refresh', 700, pin, true);
+}
+
+function hideInfo(via) {
+  log('info hide (' + via + ')');
+  if (infoTimer) { clearTimeout(infoTimer); infoTimer = null; }
+  var wasLost = overlayLost;
+  tvPinned = false;
+  overlayLost = false;
+  if (!wasLost) launch({ hide: true }); // nothing is on screen when the bar was already lost
+}
+
+// ---------- pinned bar closed by the Guide / system UI ----------
+// Opening the Guide makes webOS close the overlay window while the watcher still believes it is pinned. Waiting for
+// a channel change (picked in the Guide) and then re-pinning restores it without popping up over the Guide itself.
+var overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null, tickN = 0;
+var QUIET_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.notification'];
+function lunaJson(uri, cb) { // luna-send needs a pty, hence script(1)
+  execFile('/usr/bin/script', ['-q', '-c', LUNA + " -n 1 -f " + uri + " '{}'", '/dev/null'], { timeout: 4000 },
+    function (err, out) { cb(err ? '' : String(out)); });
+}
+function pinWatchTick() {
+  if (!tvPinned) { overlayLost = false; lastChannel = null; lastFg = null; return; }
+  if (!overlayLost && (++tickN % 2)) return; // every 2 s normally, every second once the bar has gone
+  lunaJson('luna://com.webos.applicationManager/running', function (out) {
+    if (!tvPinned || !out) return;
+    var present = out.indexOf('"' + APP_ID + '"') >= 0;
+    if (!present && !overlayLost) { overlayLost = true; log('pinned bar went away (Guide or system screen?); waiting for a channel change'); }
+    if (present) overlayLost = false;
+    // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
+    // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
+    lunaJson('luna://com.webos.applicationManager/getForegroundAppInfo', function (f) {
+      var m = /"appId": *"([^"]*)"/.exec(f);
+      if (!m || !tvPinned) return;
+      var prevFg = lastFg;
+      lastFg = m[1];
+      if (overlayLost && prevFg && prevFg !== m[1] && QUIET_APPS.indexOf(m[1]) < 0) {
+        log('foreground app changed to ' + m[1] + ' while the bar was away; restoring it');
+        if (restoreTimer) clearTimeout(restoreTimer);
+        restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('app change', true); }, 1200);
+      }
+    });
+    lunaJson('luna://com.webos.service.apiadapter/tv/getCurrentChannel', function (c) {
+      var m = /"channelNumber": *"([^"]*)"/.exec(c);
+      if (!m || !tvPinned) return;
+      var prev = lastChannel;
+      lastChannel = m[1];
+      if (overlayLost && prev !== null && prev !== m[1]) {
+        log('channel changed to ' + m[1] + ' while the bar was away; restoring it');
+        if (restoreTimer) clearTimeout(restoreTimer);
+        restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('channel change (guide)', true); }, 2500);
+      }
+    });
+  });
+}
+setInterval(pinWatchTick, 1000);
+process.on('SIGUSR1', function () { showInfoNow('signal'); });
+function esc(t) {
+  return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+}
+
+function snapshot() {
+  return { program: state.program, volume: state.volume, mute: state.mute, source: state.source, audio: state.audio,
+    plex: state.plex, processing: state.processing, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
+    updated: state.updated ? state.updated.toISOString() : null };
+}
+
+function infoRows(d) {
+  var rows = [
+    ['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + d.volume + ')' : d.volume)],
+    ['Source', d.source], ['App', d.appLabel], ['Audio (amp)', d.audio], ['Plex', d.plex ? d.plex.replace(/^Plex: /, '') : null],
+    ['Processing', d.processing], ['Video', d.video], ['Colour', d.colour]
+  ];
+  return rows.filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
+}
+
+function infoPage(shownOnTv) {
+  var d = snapshot();
+  var body = infoRows(d)
+    .map(function (r) { return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>'; }).join('');
+  return '<!doctype html><html lang="en-AU"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>AV info</title><style>' +
+    ':root{color-scheme:dark}body{margin:0;padding:24px;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#111114;color:#eee}' +
+    'main{max-width:720px;margin:0 auto}h1{font-size:22px;font-weight:600;margin:0 0 4px}p{margin:0 0 18px;color:#8b8b93;font-size:14px}' +
+    'table{width:100%;border-collapse:collapse;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;overflow:hidden}' +
+    'th,td{text-align:left;padding:11px 14px;border-bottom:1px solid #2a2a30;vertical-align:top}tr:last-child th,tr:last-child td{border-bottom:0}' +
+    'th{width:34%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}nav{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}' +
+    'a,button{font:inherit;color:#fff;text-decoration:none;background:#2a2a31;border:1px solid #3a3a42;padding:9px 14px;border-radius:10px;cursor:pointer}a:hover,button:hover{background:#34343c}' +
+    'button.on{background:#2f5d3f;border-color:#3f7255}' +
+    '</style></head><body><main><h1>AV info</h1><p id="meta">' +
+    (shownOnTv ? 'Also shown on the TV. ' : '') +
+    (d.updated ? 'Updated ' + esc(new Date(d.updated).toLocaleTimeString('en-AU')) : '') +
+    '</p><table id="rows">' + (body || '<tr><td>No data yet</td></tr>') + '</table>' +
+    '<nav><button id="tv">' + (d.pinned ? 'Hide on TV' : 'Show on TV') + '</button><button id="live" class="on">Live: on</button>' +
+    '<button id="auto" class="' + (autoInfo ? 'on' : '') + '">Auto info: ' + (autoInfo ? 'on' : 'off') + '</button>' +
+    '<a href="/setup">Setup</a><a href="/status.json">JSON</a></nav></main>' +
+    '<script>(function(){var pinned=' + (d.pinned ? 'true' : 'false') + ',live=true,timer=null,auto=' + (autoInfo ? 'true' : 'false') + ',' +
+    'au=document.getElementById("auto"),tv=document.getElementById("tv"),lv=document.getElementById("live"),rows=document.getElementById("rows"),meta=document.getElementById("meta");' +
+    'function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]})}' +
+    'function showAuto(on){auto=!!on;au.textContent="Auto info: "+(auto?"on":"off");au.className=auto?"on":""}' +
+    'au.onclick=function(){fetch("/tv/auto?v="+(auto?"0":"1"),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){showAuto(j.autoInfo)}).catch(function(){})};' +
+    'function paint(d){if(d.rows){rows.innerHTML=d.rows.map(function(r){return"<tr><th>"+esc(r[0])+"</th><td>"+esc(r[1])+"</td></tr>"}).join("")||"<tr><td>No data yet</td></tr>"}' +
+    'if(d.autoInfo!==undefined)showAuto(d.autoInfo);' +
+    'pinned=!!d.pinned;tv.textContent=pinned?"Hide on TV":"Show on TV";if(d.updated)meta.textContent="Updated "+new Date(d.updated).toLocaleTimeString("en-AU")}' +
+    'function poll(){fetch("/status.rows.json",{cache:"no-store"}).then(function(r){return r.json()}).then(paint).catch(function(){})}' +
+    'tv.onclick=function(){fetch(pinned?"/tv/hide":"/tv/show",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){pinned=!!j.pinned;tv.textContent=pinned?"Hide on TV":"Show on TV";window.setTimeout(poll,900)}).catch(function(){})};' +
+    'function setLive(on){live=on;lv.textContent=on?"Live: on":"Live: off";lv.className=on?"on":"";if(timer){window.clearInterval(timer);timer=null}if(on){poll();timer=window.setInterval(poll,5000)}}' +
+    'lv.onclick=function(){setLive(!live)};setLive(true)}());</script></body></html>';
+}
+
+// ---------- /setup (settings form, see setup.js) ----------
+function applySettings(v) {
+  var ampChanged = false;
+  if (v.ampHost !== undefined && v.ampHost !== AMP_HOST) { AMP_HOST = v.ampHost; ampChanged = true; }
+  if (v.ampPort !== undefined && v.ampPort !== AMP_PORT) { AMP_PORT = v.ampPort; ampChanged = true; }
+  if (v.corner) corner = v.corner;
+  if (v.autoInfo !== undefined) autoInfo = v.autoInfo;
+  if (v.sound) soundSettings = v.sound;
+  if (v.plexClear) plexSettings = { disabled: true };
+  else if (v.plexUrl !== undefined) {
+    var cur = readPlexConfig();
+    if (!v.plexUrl) plexSettings = { disabled: true };
+    else {
+      var token = v.plexToken || (cur && cur.url === v.plexUrl ? cur.token : '');
+      if (!token) return { error: 'Enter the Plex token for this server' };
+      plexSettings = { url: v.plexUrl, token: token, player_ip: v.plexPlayer || undefined };
+    }
+  }
+  saveSettings();
+  log('settings saved (amp ' + (AMP_HOST || 'not set') + ':' + AMP_PORT + ', corner ' + corner + ', auto info ' + (autoInfo ? 'on' : 'off') +
+    ', plex ' + (readPlexConfig() ? 'on' : 'off') + ')');
+  if (ampChanged) {
+    lastVolume = null; progKey = null; audioKey = null; procKey = null; lastError = null;
+    state.volume = null; state.program = null; state.audio = null; state.processing = null;
+    fetchStatus(true); fetchSignal();
+  }
+  fetchPlex();
+  return {};
+}
+
+var profiles = require('./profiles.js')({
+  ampGet: function (path, cb) { ampGet(path, null, cb); },
+  log: log,
+  luna: LUNA,
+  getSound: function () { return soundSettings; },
+  setSound: function (o) { soundSettings = o; saveSettings(); },
+  getPlexApp: function () { return state.plexApp || null; },
+  onContext: function (key, kind) { if (key && (kind === 'lg' || kind === 'atv')) scheduleInfo('app ' + key + (kind === 'lg' ? ' (LG app)' : ' (Apple TV)')); }
+});
+
+var setupHandler = require('./setup.js')({
+  profiles: profiles,
+  getSound: function () { return soundSettings; },
+  corners: CORNERS,
+  getSettings: function () {
+    var p = readPlexConfig();
+    return { ampHost: AMP_HOST, ampPort: AMP_PORT, autoInfo: autoInfo, corner: corner,
+      plexUrl: p ? p.url : '', plexPlayer: p && p.player_ip ? p.player_ip : '', plexTokenSet: !!p };
+  },
+  getPlexSecret: function () { return readPlexConfig(); },
+  applySettings: applySettings
+});
+
+http.createServer(function (req, res) {
+  var path = req.url.split('?')[0];
+  var wantsHtml = /text\/html/.test(req.headers.accept || '');
+  var headers = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
+  if (setupHandler(req, res, path)) return;
+  if (path === '/info') {
+    showInfoNow('http ' + req.socket.remoteAddress);
+    // give the amp/Plex refresh a moment so the page shows current values
+    setTimeout(function () {
+      if (wantsHtml) { headers['Content-Type'] = 'text/html; charset=utf-8'; res.writeHead(200, headers); res.end(infoPage(true)); }
+      else { headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, info: snapshot() })); }
+    }, 600);
+  } else if (path === '/tv/show' || path === '/tv/hide' || path === '/tv/pinstate') {
+    var via = 'http ' + req.socket.remoteAddress;
+    if (path === '/tv/show') showInfoNow(via, true);
+    else if (path === '/tv/hide') hideInfo(via);
+    else {
+      tvPinned = /[?&]v=1(&|$)/.test(req.url); // the app reports Quick Access pin/unpin
+      if (tvPinned && lastLaunchAt) log('app answered ' + (Date.now() - lastLaunchAt) + ' ms after the last launch');
+    }
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
+    res.end(JSON.stringify({ ok: true, pinned: path === '/tv/show' ? true : path === '/tv/hide' ? false : tvPinned }));
+  } else if (path === '/app') {
+    var qn = /[?&]name=([^&]*)/.exec(req.url), appName = '';
+    if (qn) { try { appName = decodeURIComponent(qn[1].replace(/[+]/g, ' ')); } catch (e) { appName = ''; } }
+    profiles.push(/[?&]clear=1(&|$)/.test(req.url) ? '' : appName);
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, app: profiles.current().key }));
+  } else if (path === '/tv/auto') {
+    var av = /[?&]v=([01])/.exec(req.url);
+    if (av) { autoInfo = av[1] === '1'; saveSettings(); log('auto info ' + (autoInfo ? 'on' : 'off')); }
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, autoInfo: autoInfo }));
+  } else if (path === '/tv/key') {
+    var kq = req.url.split('?')[1] || '';
+    log('overlay got key ' + kq);
+    // the overlay swallowed a channel key while dismissing itself: carry it out
+    // query forms: "33&fwd=1&pin=1" (channel key), "chan=20&fwd=1&pin=1" (typed number), plain "<code>" (diagnostic)
+    var kp = {};
+    kq.split('&').forEach(function (p) {
+      var i = p.indexOf('=');
+      if (i > 0) kp[p.slice(0, i)] = p.slice(i + 1); else if (p) kp.code = p;
+    });
+    if (kp.fwd === '1') {
+      // The overlay says whether it was pinned when the key arrived. Its own unpin report can overtake this request,
+      // and the watcher forgets the state when it restarts, so the app's word wins.
+      var wasPinned = kp.pin === '1' || (kp.pin === undefined && tvPinned);
+      tvPinned = wasPinned;
+      var tuned = false;
+      if (/^[0-9]{1,4}$/.test(kp.chan || '')) { openChannel(kp.chan); tuned = true; }
+      else if (kp.code === '33' || kp.code === '34') {
+        // wait for the overlay window to close: the control sends a key to whichever window has focus
+        setTimeout(function () { changeChannel(kp.code === '33'); }, 700);
+        tuned = true;
+      }
+      // bring the bar back for the new channel once it has settled (stale values first, refreshed in place)
+      if (tuned) setTimeout(function () { showInfoNow('channel change', wasPinned); }, 2700);
+    }
+    res.writeHead(204, headers); res.end();
+  } else if (path === '/status' || path === '/') {
+    headers['Content-Type'] = 'text/html; charset=utf-8'; res.writeHead(200, headers); res.end(infoPage(false));
+  } else if (path === '/status.rows.json') {
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
+    res.end(JSON.stringify({ rows: infoRows(snapshot()), pinned: tvPinned, autoInfo: autoInfo, updated: snapshot().updated }));
+  } else if (path === '/status.json') {
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify(snapshot()));
+  } else { res.writeHead(404, headers); res.end(); }
+}).on('error', function (e) { log('info http error: ' + e.message); })
+  .listen(INFO_HTTP_PORT, '0.0.0.0', function () { log('on-demand info at http://<tv>:' + INFO_HTTP_PORT + '/info'); });
+
+// ---------- amp status (volume + program) ----------
+function readVolume(s) {
+  var av = s.actual_volume;
+  if (av && typeof av.value === 'number') return av.value;
+  return Number(s.volume) / 2;
+}
+
+// Yamaha reports subwoofer trim and tone in 0.5 dB steps
+function dB(steps) {
+  var v = (Number(steps) || 0) * 0.5;
+  return (v > 0 ? '+' : '') + (v % 1 ? v.toFixed(1) : String(v)) + ' dB';
+}
+
+// The app may be mid-close (info bar finishing) when the volume changes, which drops the launch;
+// repeating it shortly afterwards guarantees the popup appears (a relaunch just refreshes it).
+var volTimer = null;
+function showVolume(value, mute) {
+  launch({ volume: value, mute: mute, output: 'yamaha' });
+  if (volTimer) clearTimeout(volTimer);
+  volTimer = setTimeout(function () {
+    volTimer = null;
+    launch({ volume: state.volume, mute: state.mute, output: 'yamaha' });
+  }, 600);
+}
+
+function handleStatus(s) {
+  if (!s || s.response_code !== 0) return;
+  if (profiles) profiles.onAmpStatus(s);
+  if (s.power !== 'on') { lastVolume = null; progKey = null; audioKey = null; procKey = null; return; }
+
+  var value = readVolume(s), mute = !!s.mute, current = value + ':' + mute;
+  state.volume = value; state.mute = mute; state.updated = new Date();
+  if (lastVolume === null) { lastVolume = current; log('watching ' + AMP_HOST + ' at ' + current); }
+  else if (current !== lastVolume) {
+    lastVolume = current;
+    log('volume ' + current);
+    showVolume(value, mute);
+  }
+
+  var prog = s.direct ? 'Direct' : (PROGRAMS[s.sound_program] || s.sound_program || '');
+  if (!s.direct && s.sound_program === 'surr_decoder' && DECODERS[s.surr_decoder_type]) {
+    prog += ' · ' + DECODERS[s.surr_decoder_type];
+  }
+  state.program = prog;
+
+  var proc = [];
+  if (s.enhancer) proc.push('Enhancer');
+  if (s.adaptive_drc) proc.push('Adaptive DRC');
+  if (s.extra_bass) proc.push('Extra Bass');
+  if (typeof s.dialogue_level === 'number' && s.dialogue_level > 0) proc.push('Dialogue ' + s.dialogue_level);
+  if (typeof s.subwoofer_volume === 'number' && s.subwoofer_volume !== 0) proc.push('Sub ' + dB(s.subwoofer_volume));
+  var tc = s.tone_control;
+  if (tc && tc.mode === 'manual' && (tc.bass || tc.treble)) proc.push('Bass ' + dB(tc.bass) + ' Treble ' + dB(tc.treble));
+  state.processing = proc.join(' · ') || null;
+  var pk = proc.join('|');
+  if (procKey === null) { procKey = pk; }
+  else if (pk !== procKey) { procKey = pk; scheduleInfo('processing ' + (state.processing || 'none')); }
+  if (progKey === null) { progKey = prog; }
+  else if (prog !== progKey) { progKey = prog; scheduleInfo('program ' + prog); fetchSignal(); }
+}
+
+function fetchStatus(subscribe) {
+  if (inFlight) { refetch = true; return; }
+  inFlight = true;
+  var headers = subscribe ? { 'X-AppName': 'MusicCast/1.0(earc-overlay)', 'X-AppPort': String(EVENT_PORT) } : null;
+  ampGet('/main/getStatus', headers, function (err, j) {
+    inFlight = false;
+    if (err) { if (err.message !== lastError) { lastError = err.message; log('amp unreachable: ' + err.message); } }
+    else { lastError = null; handleStatus(j); }
+    if (refetch) { refetch = false; fetchStatus(false); }
+  });
+}
+
+// ---------- amp signal info (audio format) ----------
+function fetchSignal() {
+  if (signalInFlight) return;
+  signalInFlight = true;
+  ampGet('/main/getSignalInfo', null, function (err, j) {
+    signalInFlight = false;
+    if (err || !j || j.response_code !== 0 || !j.audio) return;
+    var a = j.audio, parts = [];
+    // During HDMI re-lock the amp briefly reports '---'; ignore those so the bar
+    // never shows a dropout and transitions don't count as changes.
+    if (!a.format || a.format === '---' || !a.fs || a.fs === '---') return;
+    parts.push(a.format);
+    if (a.fs) parts.push(a.fs);
+    if (a.bit) parts.push(a.bit);
+    var key = parts.join('|');
+    if (a.bitrate > 0) parts.push(a.bitrate + ' kbps');
+    state.audio = parts.join(' · ');
+    if (audioKey === null) { audioKey = key; }
+    else if (key !== audioKey) { audioKey = key; scheduleInfo('audio ' + state.audio); }
+  });
+}
+
+// ---------- TV video output (luna subscription; needs a pty, hence `script`) ----------
+function fmtRate(r) {
+  r = Number(r) || 0;
+  var s = (Math.round(r * 1000) / 1000).toString();
+  return s + ' fps';
+}
+
+function handleVideo(resp) {
+  if (!resp || !resp.video) return;
+  var v = null;
+  for (var i = 0; i < resp.video.length; i++) if (resp.video[i].sink === 'MAIN') v = resp.video[i];
+  if (!v || !v.connected || !v.width) return; // TV UI / no signal: keep last state
+  var vi = v.videoInfo || {};
+  var hdr = HDR[String(vi.hdrType || '').toLowerCase()] || vi.hdrType || 'SDR';
+  var scan = v.scanType === 'interlaced' ? 'i' : 'p';
+  state.video = v.width + '×' + v.height + scan + ' · ' + fmtRate(v.frameRate) + ' · ' + hdr;
+
+  var isSdr = hdr === 'SDR';
+  var csOrder = isSdr ? [vi.colormetry] : [vi.additionalColormetry, vi.colormetry];
+  var cs = csOrder.filter(function (c) { return c && c !== 'NODATA'; })[0] || (isSdr ? 'BT.709' : '');
+  var range = /rgb/i.test(vi.pixelEncoding || '') ? vi.rgbRange : vi.ycbcrRange;
+  var enc = vi.pixelEncoding ? vi.pixelEncoding.replace(/^YCBCR/i, 'YCbCr ') : '';
+  if (enc && range) enc += ' ' + range.charAt(0) + range.slice(1).toLowerCase();
+  var colour = [];
+  if (enc) colour.push(enc);
+  if (cs) colour.push(COLOUR[cs.toLowerCase()] || cs);
+  state.colour = colour.join(' · ') || null;
+
+  var app = v.appId || '';
+  var m = app.match(/hdmi(\d)/);
+  var prevSource = state.source;
+  state.source = m ? 'HDMI ' + m[1] : (/livetv|tvsource|dtv/i.test(app + v.connectedSource) ? 'Live TV' : (v.connectedSource || null));
+  // Switching input closes the overlay window; bring a pinned bar back once the new input has settled.
+  if (tvPinned && prevSource && state.source && prevSource !== state.source) {
+    log('input changed to ' + state.source + ' while pinned; restoring the bar');
+    if (restoreTimer) clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('input change', true); }, 1200);
+  }
+
+  var key = [v.width, v.height, scan, v.frameRate, hdr, app].join('|');
+  if (videoKey === null) { videoKey = key; log('video baseline ' + state.video); }
+  else if (key !== videoKey) { videoKey = key; scheduleInfo('video ' + state.video); fetchSignal(); }
+}
+
+var videoProc = null;
+function startVideoWatch() {
+  var cmd = LUNA + " -i 'luna://com.webos.service.videooutput/getStatus' '{\"subscribe\":true}'";
+  videoProc = spawn('/usr/bin/script', ['-q', '-f', '-c', cmd, '/dev/null']);
+  var pending = '';
+  videoProc.stdout.on('data', function (chunk) {
+    pending += String(chunk);
+    var lines = pending.split('\n');
+    pending = lines.pop();
+    lines.forEach(function (line) {
+      line = line.replace(/\r/g, '').trim();
+      if (line.charAt(0) !== '{') return;
+      try { handleVideo(JSON.parse(line)); } catch (e) { log('video parse error: ' + e.message); }
+    });
+  });
+  videoProc.on('exit', function (code) {
+    log('video subscription ended (' + code + '), restarting in 5s');
+    videoProc = null;
+    setTimeout(startVideoWatch, 5000);
+  });
+}
+
+// ---------- Plex Media Server session details (source codec / channels / bitrate) ----------
+var PLEX_AUDIO = { truehd: 'TrueHD', eac3: 'DD+', ac3: 'Dolby Digital', aac: 'AAC', flac: 'FLAC', opus: 'Opus',
+  mp3: 'MP3', pcm: 'PCM', alac: 'ALAC', vorbis: 'Vorbis' };
+var PLEX_DTS = { ma: 'DTS-HD MA', hra: 'DTS-HD HRA', x: 'DTS:X', es: 'DTS-ES', '96_24': 'DTS 96/24' };
+
+function readPlexConfig() {
+  if (plexSettings && plexSettings.disabled) return null;
+  if (plexSettings && plexSettings.url && plexSettings.token) return plexSettings;
+  try { var c = JSON.parse(fs.readFileSync(PLEX_CONFIG, 'utf8')); return (c && c.url && c.token) ? c : null; }
+  catch (e) { return null; }
+}
+
+function plexAudio(a) {
+  if (!a) return null;
+  var codec = String(a.codec || '').toLowerCase(), name;
+  if (codec === 'dca' || codec === 'dts') name = PLEX_DTS[String(a.profile || '').toLowerCase()] || 'DTS';
+  else name = PLEX_AUDIO[codec] || codec.toUpperCase();
+  var title = (a.extendedDisplayTitle || '') + ' ' + (a.displayTitle || '');
+  if (/atmos/i.test(title)) name += ' Atmos';
+  if (/dts:x/i.test(title) && name.indexOf('DTS:X') < 0) name = 'DTS:X';
+  var ch = a.audioChannelLayout ? String(a.audioChannelLayout).replace(/\(.*\)/, '') : '';
+  if (!ch && a.channels) ch = { 1: '1.0', 2: '2.0', 3: '2.1', 6: '5.1', 7: '6.1', 8: '7.1' }[a.channels] || (a.channels + 'ch');
+  if (ch === 'stereo') ch = '2.0';
+  if (ch === 'mono') ch = '1.0';
+  var out = name + (ch ? ' ' + ch : '');
+  if (a.bitrate) out += ' · ' + a.bitrate + ' kbps';
+  return out;
+}
+
+function plexSummary(md) {
+  var media = (md.Media || [])[0] || {}, part = (media.Part || [])[0] || {}, streams = part.Stream || [];
+  var a = null, v = null;
+  streams.forEach(function (st) {
+    if (st.streamType === 2 && (st.selected || !a)) a = st;
+    if (st.streamType === 1 && !v) v = st;
+  });
+  var bits = [];
+  var audio = plexAudio(a);
+  if (audio) bits.push(audio);
+  if (v && v.displayTitle) bits.push(v.displayTitle);
+  if (media.bitrate) bits.push((Math.round(media.bitrate / 100) / 10) + ' Mbps');
+  var tc = md.TranscodeSession;
+  var decision = !tc ? 'Direct Play' :
+    (tc.videoDecision === 'transcode' || tc.audioDecision === 'transcode') ? 'Transcode' : 'Direct Stream';
+  bits.push(decision);
+  return { text: 'Plex: ' + bits.join(' · '), key: [md.ratingKey, a && a.id, decision].join('|') };
+}
+
+function pickSession(list, cfg) {
+  var live = list.filter(function (md) {
+    var pl = md.Player || {};
+    return /playing|paused|buffering/.test(pl.state || '');
+  });
+  if (cfg.player_ip) return live.filter(function (md) { return (md.Player || {}).address === cfg.player_ip; })[0] || null;
+  return live.filter(function (md) {
+    var pl = md.Player || {};
+    return /tvos|apple ?tv|infuse/i.test([pl.platform, pl.product, pl.title, pl.device].join(' '));
+  })[0] || null;
+}
+
+function clearPlex() {
+  state.plex = null; plexKey = null;
+  if (state.plexApp) { state.plexApp = null; if (profiles) profiles.onPlexApp(); }
+}
+
+function fetchPlex() {
+  if (plexInFlight) return;
+  if (!state.source || state.source.indexOf('HDMI') !== 0) { clearPlex(); return; } // only while on the Apple TV input
+  var cfg = readPlexConfig();
+  if (!cfg) { clearPlex(); return; }
+  var u;
+  try { u = new (require('url').URL)(cfg.url.replace(/\/+$/, '') + '/status/sessions'); } catch (e) { log('plex: bad url'); return; }
+  var mod = u.protocol === 'https:' ? https : http;
+  plexInFlight = true;
+  var req = mod.get({ host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname,
+    headers: { 'Accept': 'application/json', 'X-Plex-Token': cfg.token }, timeout: 2500,
+    rejectUnauthorized: false }, function (res) {
+    var body = '';
+    res.setEncoding('utf8');
+    res.on('data', function (c) { body += c; });
+    res.on('end', function () {
+      plexInFlight = false;
+      if (res.statusCode !== 200) { log('plex: HTTP ' + res.statusCode); return; }
+      var list = [];
+      try { list = (JSON.parse(body).MediaContainer || {}).Metadata || []; } catch (e) { log('plex: parse error'); return; }
+      var md = pickSession(list, cfg);
+      if (!md) { clearPlex(); return; }
+      var sum = plexSummary(md);
+      state.plex = sum.text;
+      var product = ((md.Player || {}).product || '').slice(0, 40) || null;
+      if (product !== state.plexApp) { state.plexApp = product; if (profiles) profiles.onPlexApp(); }
+      if (sum.key !== plexKey) { plexKey = sum.key; scheduleInfo(sum.text); }
+    });
+  });
+  req.on('timeout', function () { req.destroy(new Error('timeout')); });
+  req.on('error', function (e) { plexInFlight = false; log('plex: ' + e.message); });
+}
+
+// ---------- amp UDP events ----------
+var sock = dgram.createSocket('udp4');
+sock.on('message', function (msg) {
+  try {
+    var ev = JSON.parse(String(msg)), m = ev.main;
+    if (!m) return;
+    if (m.signal_info_updated) fetchSignal();
+    if (m.volume !== undefined || m.mute !== undefined || m.power !== undefined ||
+        m.sound_program !== undefined || m.direct !== undefined || m.enhancer !== undefined ||
+        m.dialogue_level !== undefined || m.subwoofer_volume !== undefined || m.status_updated) fetchStatus(false);
+  } catch (e) {}
+});
+sock.on('error', function (e) { log('udp error: ' + e.message); });
+sock.bind(EVENT_PORT, function () { log('listening for amp events on udp/' + EVENT_PORT); });
+
+function stop() {
+  try { sock.close(); } catch (e) {}
+  try { if (videoProc) { videoProc.removeAllListeners('exit'); videoProc.kill(); } } catch (e) {}
+  process.exit(0);
+}
+process.on('SIGTERM', stop);
+process.on('SIGINT', stop);
+
+log('service starting (yamaha ' + (AMP_HOST || 'not configured') + ', with signal info)');
+fetchStatus(true);
+fetchSignal();
+startVideoWatch();
+setInterval(function () { fetchStatus(true); }, RESUBSCRIBE_MS);
+setInterval(function () { fetchStatus(false); }, POLL_MS);
+setInterval(fetchSignal, SIGNAL_POLL_MS);
+setInterval(fetchPlex, PLEX_POLL_MS);
