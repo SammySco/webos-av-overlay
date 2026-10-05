@@ -447,6 +447,7 @@ http.createServer(function (req, res) {
     else if (path === '/tv/hide') hideInfo(via);
     else {
       tvPinned = /[?&]v=1(&|$)/.test(req.url); // the app reports Quick Access pin/unpin
+      log('overlay reported ' + (tvPinned ? 'pinned' : 'unpinned'));
       if (tvPinned && lastLaunchAt) log('app answered ' + (Date.now() - lastLaunchAt) + ' ms after the last launch');
     }
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
@@ -456,6 +457,13 @@ http.createServer(function (req, res) {
     if (qn) { try { appName = decodeURIComponent(qn[1].replace(/[+]/g, ' ')); } catch (e) { appName = ''; } }
     profiles.push(/[?&]clear=1(&|$)/.test(req.url) ? '' : appName);
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, app: profiles.current().key }));
+  } else if (path === '/tv/qa') {
+    // The app was launched with no parameters (the LG Quick Access key). The watcher's own pin state decides, so the
+    // key still toggles when webOS started a fresh copy of the app that knows nothing about the bar.
+    var qaVia = 'quick access ' + req.socket.remoteAddress, qaHide = tvPinned;
+    if (qaHide) hideInfo(qaVia); else showInfoNow(qaVia, true);
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
+    res.end(JSON.stringify({ ok: true, action: qaHide ? 'hide' : 'pin' }));
   } else if (path === '/tv/auto') {
     var av = /[?&]v=([01])/.exec(req.url);
     if (av) { autoInfo = av[1] === '1'; saveSettings(); log('auto info ' + (autoInfo ? 'on' : 'off')); }
