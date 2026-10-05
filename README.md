@@ -5,6 +5,35 @@ On-screen volume and stream information for a rooted LG webOS TV that sends its 
 [Nikolay1243/Webos-EARC-Volume-Overlay](https://github.com/Nikolay1243/Webos-EARC-Volume-Overlay),
 which showed a numeric volume; this version reads the receiver directly and adds an info bar.
 
+<table>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/images/bar-plex-dolby-vision.jpg" alt="Info bar over a Dolby Vision title played from Infuse on an Apple TV, with Plex stream details" width="100%"><br>
+      <sub>The info bar over Dolby Vision from an Apple TV app: sound program, input, detected app, audio, Plex stream (direct play), amp processing, video and colour.</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/images/bar-live-tv.jpg" alt="Info bar on Live TV showing the receiver's surround decoder" width="100%"><br>
+      <sub>On Live TV the bar shows the surround decoder, the PCM audio the receiver gets, and the broadcast video format.</sub>
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/images/status-page.png" alt="The status page with Show on TV, Live and Auto info buttons" width="100%"><br>
+      <sub>The status page (<code>/status</code>): current values, Show/Hide on TV, a live view and the Auto info switch.</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/images/setup-receiver-plex.png" alt="The setup page: receiver, Plex and display settings" width="100%"><br>
+      <sub>The setup page (<code>/setup</code>): receiver address, optional Plex, info bar position and volume number. (Addresses are blanked in this picture.)</sub>
+    </td>
+  </tr>
+</table>
+
+<img src="docs/images/setup-sound-rules.png" alt="Sound program per app rules on the setup page" width="100%"><br>
+<sub>Per-app sound programs on the setup page: a default, then one rule per input, LG app or Apple TV app, with tick boxes to show or hide each group.</sub>
+
 - **Volume popup** (bottom-right) whenever the receiver's volume or mute changes, including half steps.
 - **Info bar** with the sound program, source, audio format, Plex stream details (optional),
   amp processing, video format/HDR and colour. It appears when something changes (switchable), on
