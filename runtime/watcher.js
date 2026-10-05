@@ -50,7 +50,7 @@ var COLOUR = { dcip3d65: 'DCI-P3 D65', dcip3theater: 'DCI-P3', bt2020: 'BT.2020'
 var lastVolume = null, lastError = null, inFlight = false, refetch = false;
 var progKey = null, audioKey = null, videoKey = null;
 var profiles = null;
-var state = { volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
+var state = { lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
   volume: null, mute: false, updated: null };
 var plexKey = null, plexInFlight = false;
 var procKey = null;
@@ -178,14 +178,48 @@ function fetchNowPlaying() {
   });
 }
 
+// ---------- is the receiver answering? ----------
+// The receiver is polled every 2 s. If no read has succeeded for STALE_MS its numbers are not current, so they are
+// withheld (bar, pages and status.json) and a "not responding" note takes their place instead of the last known value.
+var STALE_MS = 6000;
+var startedAt = Date.now();
+function ampReachable() {
+  if (!AMP_HOST) return false;
+  if (state.lastOk) return Date.now() - state.lastOk.getTime() < STALE_MS;
+  return Date.now() - startedAt < 5000; // just started, the first read is still on its way
+}
+function lastSeenText() {
+  if (!AMP_HOST) return 'No receiver address set (open /setup)';
+  if (!state.lastOk) return 'Not reached since the overlay started';
+  var secs = Math.round((Date.now() - state.lastOk.getTime()) / 1000);
+  if (secs < 90) return 'Last answered ' + secs + ' s ago';
+  var mins = Math.round(secs / 60);
+  if (mins < 90) return 'Last answered ' + mins + ' min ago';
+  return 'Last answered ' + Math.round(mins / 60) + ' h ago';
+}
+var lastReach = null;
+function reachTick() {
+  var up = ampReachable();
+  if (lastReach === null) { lastReach = up; return; }
+  if (up === lastReach) return;
+  lastReach = up;
+  log(up ? 'receiver answering again' : 'receiver not responding (' + lastSeenText() + ')');
+  if (tvPinned) scheduleInfo('receiver ' + (up ? 'back' : 'not responding')); // refresh a bar that is already up; never pop one
+}
+setInterval(reachTick, 1000);
+
 function launchInfo(pin) {
   var al = appLabel();
-  var segs = state.ampLocal
-    ? [inputLabel(state.ampInput), state.nowPlaying, state.audio, state.processing]
-    : [state.source, al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour];
+  var up = ampReachable();
+  var segs = !up
+    ? [lastSeenText(), state.source, al ? 'App: ' + al : null, state.video, state.colour]
+    : (state.ampLocal
+      ? [inputLabel(state.ampInput), state.nowPlaying, state.audio, state.processing]
+      : [state.source, al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour]);
   segs = segs.filter(function (x) { return !!x; });
-  var params = { info: { title: state.program || 'Sound program', segs: segs }, corner: corner };
-  log('info bar: ' + (state.program || '') + ' | ' + segs.join(' | '));
+  var title = up ? (state.program || 'Sound program') : 'Receiver not responding';
+  var params = { info: { title: title, segs: segs }, corner: corner };
+  log('info bar: ' + title + ' | ' + segs.join(' | '));
   if (pin) { params.pin = true; tvPinned = true; overlayLost = false; }
   else if (tvPinned && overlayLost) return; // the Guide or another system screen closed the bar: do not pop up over it
   launch(params);
@@ -280,12 +314,18 @@ function esc(t) {
 }
 
 function snapshot() {
-  return { program: state.program, volume: state.volume, mute: state.mute, source: state.source, audio: state.audio,
-    plex: state.plex, processing: state.processing, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: state.volumeText, ampInput: state.ampInput, ampLocal: state.ampLocal, nowPlaying: state.nowPlaying, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
+  var up = ampReachable();
+  return { reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
+    program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null,
+    plex: state.plex, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
 }
 
 function infoRows(d) {
+  if (d.reachable === false) { // withhold the receiver's numbers; show what the TV knows plus why they are missing
+    return [['Receiver', 'Not responding'], ['Last contact', d.receiverNote], ['Source', d.source], ['App', d.appLabel], ['Video', d.video], ['Colour', d.colour]]
+      .filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
+  }
   if (d.ampLocal) { // the receiver is playing its own source: the TV's video and app details would be misleading
     return [['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
       ['Receiver input', inputLabel(d.ampInput)], ['Now playing', d.nowPlaying], ['Audio (amp)', d.audio], ['Processing', d.processing]]
@@ -549,7 +589,7 @@ function fetchStatus(subscribe) {
   ampGet('/main/getStatus', headers, function (err, j) {
     inFlight = false;
     if (err) { if (err.message !== lastError) { lastError = err.message; log('amp unreachable: ' + err.message); } }
-    else { lastError = null; handleStatus(j); }
+    else { lastError = null; state.lastOk = new Date(); handleStatus(j); }
     if (refetch) { refetch = false; fetchStatus(false); }
   });
 }

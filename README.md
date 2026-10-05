@@ -106,6 +106,9 @@ watching 192.168.1.50 at 42:false
 
 - *"amp not configured"*: enter the receiver address at `/setup`.
 - *"amp unreachable"*: check the address, that the receiver is on, and that "Network Standby" is enabled on it.
+  While the receiver is not answering, the bar and the `/status` and `/info` pages say **"Receiver not responding"** with
+  when it last answered, and the receiver's own numbers (volume, sound program, audio) are withheld instead of showing
+  the last value; `/status.json` has `reachable` and `lastOk`. The volume popup simply does not appear.
 - Remote channel up/down while the info bar is on screen: the first key press dismisses the bar and is
   passed on to Live TV, so one press still changes the channel.
 
