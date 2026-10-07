@@ -1,12 +1,13 @@
 {
   "name": "webos-earc-volume-overlay",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "private": true,
   "description": "An on-screen eARC volume indicator for rooted LG webOS TVs",
   "license": "MIT",
   "scripts": {
     "package": "sh scripts/package.sh",
-    "release": "sh scripts/make-release.sh"
+    "release": "sh scripts/make-release.sh",
+    "deploy": "sh scripts/deploy.sh"
   },
   "devDependencies": {
     "@webos-tools/cli": "^3.2.6"

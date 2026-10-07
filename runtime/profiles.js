@@ -233,8 +233,35 @@ module.exports = function createProfiles(ctx) {
     timer = setTimeout(function () { timer = null; run(false); }, ms === undefined ? SETTLE_MS : ms);
   }
 
+  // ---------- Spotify guard ----------
+  // Spotify Connect to the Apple TV sends the sound over HDMI, but the receiver stays on its own idle Spotify input, so
+  // nothing is heard. When the Apple TV says Spotify is playing, the receiver is on a network source that is not playing
+  // and the TV is on the Apple TV's input, switch the receiver to the TV input. Connect straight to the receiver is left
+  // alone because the receiver is then playing.
+  var guardHits = 0, guardBusy = false;
+  function guardTick() {
+    var c = cfg();
+    var onAtv = pushed && /^spotify$/i.test(pushed.name) && /^HDMI/.test(friendly(fg.id) || '') &&
+      (!c.appInput || c.appInput === friendly(fg.id));
+    if (!c.enabled || !onAtv || ampInput !== 'spotify' || guardBusy) { guardHits = 0; return; }
+    guardBusy = true;
+    ctx.ampGet('/netusb/getPlayInfo', function (err, p) {
+      guardBusy = false;
+      var playing = !err && p && p.playback === 'play';
+      if (err || !p || playing) { guardHits = 0; return; }
+      if (++guardHits < 3) return; // about 6 s of silence, so a track change or a quick tap does not trigger it
+      guardHits = 0;
+      setAmp('/main/setInput?input=' + encodeURIComponent(c.tvInput), function (ok) {
+        ctx.log('Spotify guard: Apple TV is playing Spotify while the receiver was idle on ' + ampInput + ' -> ' +
+          (ok ? 'switched the receiver to ' + c.tvInput : 'the receiver refused the input change'));
+        if (ok) { ampInput = c.tvInput; noteContext(); schedule(); }
+      });
+    });
+  }
+
   // ---------- inputs from the watcher ----------
   function check() { // called every FOREGROUND_MS
+    guardTick();
     readForeground(function (id) {
       var f = friendly(id);
       if (id && f && !titles[id] && !/^(HDMI|Live)/.test(f) && Date.now() - titlesAt > 60000) loadTitles();
@@ -278,6 +305,8 @@ module.exports = function createProfiles(ctx) {
   return {
     push: push,
     ruleFor: function (key, kind) { return findRule(key, kind, cfg()); },
+    inputName: function (label) { var n = inputNames[label]; return n && n !== label ? n : null; },
+    currentInputName: function () { var b = friendly(fg.id); return b && inputNames[b] && inputNames[b] !== b ? inputNames[b] : null; },
     onAmpStatus: onAmpStatus,
     onPlexApp: onPlexApp,
     applyNow: function () { run(true); },

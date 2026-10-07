@@ -29,6 +29,10 @@ var INFO_HTTP_PORT = Number(process.env.EARC_INFO_PORT) || 41101; // GET /info s
 var APP_ID = 'com.sammysco.avoverlay';
 var LOG = '/tmp/earc-volume-overlay.log';
 var LUNA = process.env.EARC_LUNA_SEND || '/usr/bin/luna-send';
+// In Docker deployments the watcher runs on a separate machine and the TV's overlay app needs to
+// make HTTP callbacks to the Docker host instead of 127.0.0.1.  Set this to the URL the TV can
+// reach, e.g. http://192.168.1.5:41101.  Passed as watcherBase in every luna launch invocation.
+var WATCHER_URL = process.env.EARC_WATCHER_URL || '';
 
 var PROGRAMS = {
   straight: 'Straight', surr_decoder: 'Surround Decoder', '2ch_stereo': '2ch Stereo',
@@ -50,7 +54,7 @@ var COLOUR = { dcip3d65: 'DCI-P3 D65', dcip3theater: 'DCI-P3', bt2020: 'BT.2020'
 var lastVolume = null, lastError = null, inFlight = false, refetch = false;
 var progKey = null, audioKey = null, videoKey = null;
 var profiles = null;
-var state = { lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
+var state = { tvName: null, lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
   volume: null, mute: false, updated: null };
 var plexKey = null, plexInFlight = false;
 var procKey = null;
@@ -98,6 +102,7 @@ function log(m) {
 var lastLaunchAt = 0;
 function launch(params, id) {
   lastLaunchAt = Date.now();
+  if (WATCHER_URL) params = Object.assign({ watcherBase: WATCHER_URL }, params);
   execFile(LUNA, ['-n', '1', 'luna://com.webos.applicationManager/launch',
     JSON.stringify({ id: id || APP_ID, params: params })], function (error) {
     if (error) log('launch failed: ' + error.message);
@@ -136,10 +141,29 @@ function ampGet(path, headers, cb) {
 
 // ---------- info card ----------
 // "Netflix (LG app)" / "Netflix (Apple TV)" for apps; null for inputs (the source segment already names those)
+function pageTitle(d) { return d && d.tvName ? d.tvName + ' - AV Info' : 'AV Info'; }
+
+// The name the user gave the TV (Settings > General > Device Name), read from the TV's settings service.
+function fetchTvName() {
+  execFile('/usr/bin/script', ['-q', '-c', LUNA + " -n 1 -f luna://com.webos.settingsservice/getSystemSettings '{\"category\":\"network\",\"keys\":[\"deviceName\"]}'", '/dev/null'],
+    { timeout: 4000 }, function (err, out) {
+      var m = !err && /"deviceName": *"([^"]{1,60})"/.exec(String(out));
+      if (m && m[1] !== state.tvName) { state.tvName = m[1]; log('TV name: ' + state.tvName); }
+    });
+}
+fetchTvName();
+setInterval(fetchTvName, 10 * 60 * 1000);
+
+function sourceLabel() {
+  var n = profiles && state.source ? profiles.inputName(state.source) : null;
+  return state.source ? (n ? state.source + ' - ' + n : state.source) : null;
+}
+
 function appLabel() {
   var c = profiles ? profiles.current() : null;
   if (!c || !c.key || (c.kind !== 'lg' && c.kind !== 'atv')) return null;
-  return c.key + (c.kind === 'lg' ? ' (LG app)' : ' (Apple TV)');
+  if (c.kind === 'lg') return c.key + ' on LG TV';
+  return c.key + ' on Apple TV';
 }
 
 // ---------- amp-local sources (TIDAL, net radio, ...): what the receiver itself is playing ----------
@@ -212,10 +236,10 @@ function launchInfo(pin) {
   var al = appLabel();
   var up = ampReachable();
   var segs = !up
-    ? [lastSeenText(), state.source, al ? 'App: ' + al : null, state.video, state.colour]
+    ? [lastSeenText(), sourceLabel(), al ? 'App: ' + al : null, state.video, state.colour]
     : (state.ampLocal
       ? [inputLabel(state.ampInput), state.nowPlaying, state.audio, state.processing]
-      : [state.source, al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour]);
+      : [sourceLabel(), al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour]);
   segs = segs.filter(function (x) { return !!x; });
   var title = up ? (state.program || 'Sound program') : 'Receiver not responding';
   var params = { info: { title: title, segs: segs }, corner: corner };
@@ -315,7 +339,7 @@ function esc(t) {
 
 function snapshot() {
   var up = ampReachable();
-  return { reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
+  return { tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
     program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null,
     plex: state.plex, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
@@ -323,7 +347,7 @@ function snapshot() {
 
 function infoRows(d) {
   if (d.reachable === false) { // withhold the receiver's numbers; show what the TV knows plus why they are missing
-    return [['Receiver', 'Not responding'], ['Last contact', d.receiverNote], ['Source', d.source], ['App', d.appLabel], ['Video', d.video], ['Colour', d.colour]]
+    return [['Receiver', 'Not responding'], ['Last contact', d.receiverNote], ['Source', d.sourceLabel || d.source], ['App', d.appLabel], ['Video', d.video], ['Colour', d.colour]]
       .filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
   }
   if (d.ampLocal) { // the receiver is playing its own source: the TV's video and app details would be misleading
@@ -333,7 +357,7 @@ function infoRows(d) {
   }
   var rows = [
     ['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
-    ['Source', d.source], ['App', d.appLabel], ['Audio (amp)', d.audio], ['Plex', d.plex ? d.plex.replace(/^Plex: /, '') : null],
+    ['Source', d.sourceLabel || d.source], ['App', d.appLabel], ['Audio (amp)', d.audio], ['Plex', d.plex ? d.plex.replace(/^Plex: /, '') : null],
     ['Processing', d.processing], ['Video', d.video], ['Colour', d.colour]
   ];
   return rows.filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
@@ -345,32 +369,47 @@ function infoPage(shownOnTv) {
     .map(function (r) { return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>'; }).join('');
   return '<!doctype html><html lang="en-AU"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<title>AV info</title><style>' +
-    ':root{color-scheme:dark}body{margin:0;padding:24px;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#111114;color:#eee}' +
-    'main{max-width:720px;margin:0 auto}h1{font-size:22px;font-weight:600;margin:0 0 4px}p{margin:0 0 18px;color:#8b8b93;font-size:14px}' +
-    'table{width:100%;border-collapse:collapse;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;overflow:hidden}' +
-    'th,td{text-align:left;padding:11px 14px;border-bottom:1px solid #2a2a30;vertical-align:top}tr:last-child th,tr:last-child td{border-bottom:0}' +
-    'th{width:34%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}nav{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}' +
-    'a,button{font:inherit;color:#fff;text-decoration:none;background:#2a2a31;border:1px solid #3a3a42;padding:9px 14px;border-radius:10px;cursor:pointer}a:hover,button:hover{background:#34343c}' +
-    'button.on{background:#2f5d3f;border-color:#3f7255}' +
-    '</style></head><body><main><h1>AV info</h1><p id="meta">' +
+    '<title>' + esc(pageTitle(d)) + '</title><style>' +
+    ':root{color-scheme:dark}*{box-sizing:border-box}html,body{height:100%}' +
+    'body{margin:0;padding:max(10px,1.2vh) 14px;font:16px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#111114;color:#eee;overflow:hidden}' +
+    'main{max-width:720px;margin:0 auto;height:100%;display:flex;flex-direction:column;gap:max(6px,1vh)}' +
+    'h1{font-size:clamp(15px,2.6vh,22px);font-weight:600;margin:0}p#meta{margin:0;color:#8b8b93;font-size:clamp(11px,1.7vh,14px)}' +
+    '.box{flex:1 1 auto;min-height:0;overflow:hidden}' +
+    'table{width:100%;border-collapse:collapse;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;overflow:hidden;font-size:clamp(11px,1.95vh,16px)}' +
+    'th,td{text-align:left;padding:.45em .7em;border-bottom:1px solid #2a2a30;vertical-align:top;line-height:1.25}tr:last-child th,tr:last-child td{border-bottom:0}' +
+    'th{width:32%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}' +
+    'nav{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}' +
+    '.tg{display:flex;align-items:center;justify-content:space-between;gap:8px;font:inherit;font-size:clamp(11px,1.8vh,15px);color:#eee;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;padding:.55em .7em;cursor:pointer;text-align:left;line-height:1.15}' +
+    '.sw{flex:0 0 auto;position:relative;width:2.6em;height:1.5em;border-radius:1em;background:#3a3a42;transition:background .15s}' +
+    '.sw:after{content:"";position:absolute;top:.17em;left:.17em;width:1.16em;height:1.16em;border-radius:50%;background:#fff;transition:left .15s}' +
+    '.tg.on .sw{background:#34a853}.tg.on .sw:after{left:1.27em}' +
+    'nav a{grid-column:span 1;font:inherit;font-size:clamp(11px,1.8vh,15px);color:#ddd;text-decoration:none;background:#2a2a31;border:1px solid #3a3a42;border-radius:12px;padding:.55em .7em;text-align:center}' +
+    '.links{display:contents}' +
+    // short landscape screens (a phone on its side): the table on the left, the toggles stacked on the right
+    '@media (orientation:landscape) and (max-height:520px){body{padding:6px 12px}main{max-width:none;display:grid;grid-template-columns:1fr 200px;grid-template-rows:auto auto 1fr;column-gap:12px;row-gap:2px}' +
+    'h1{grid-column:1/-1;font-size:clamp(14px,5vh,18px)}p#meta{grid-column:1/-1}.box{grid-column:1;grid-row:3}' +
+    'table{font-size:clamp(10px,4vh,14px)}th,td{padding:.28em .6em}' +
+    'nav{grid-column:2;grid-row:3;grid-template-columns:1fr;align-content:start;gap:6px}.tg,nav a{font-size:clamp(11px,4.2vh,14px);padding:.45em .6em}}' +
+    '</style></head><body><main><h1 id="ttl">' + esc(pageTitle(d)) + '</h1><p id="meta">' +
     (shownOnTv ? 'Also shown on the TV. ' : '') +
     (d.updated ? 'Updated ' + esc(new Date(d.updated).toLocaleTimeString('en-AU')) : '') +
-    '</p><table id="rows">' + (body || '<tr><td>No data yet</td></tr>') + '</table>' +
-    '<nav><button id="tv">' + (d.pinned ? 'Hide on TV' : 'Show on TV') + '</button><button id="live" class="on">Live: on</button>' +
-    '<button id="auto" class="' + (autoInfo ? 'on' : '') + '">Auto info: ' + (autoInfo ? 'on' : 'off') + '</button>' +
+    '</p><div class="box"><table id="rows">' + (body || '<tr><td>No data yet</td></tr>') + '</table></div>' +
+    '<nav><button class="tg' + (d.pinned ? ' on' : '') + '" id="tv" type="button">Show on TV<span class="sw"></span></button>' +
+    '<button class="tg on" id="live" type="button">Live refresh<span class="sw"></span></button>' +
+    '<button class="tg' + (autoInfo ? ' on' : '') + '" id="auto" type="button">Auto info<span class="sw"></span></button>' +
     '<a href="/setup">Setup</a><a href="/status.json">JSON</a></nav></main>' +
     '<script>(function(){var pinned=' + (d.pinned ? 'true' : 'false') + ',live=true,timer=null,auto=' + (autoInfo ? 'true' : 'false') + ',' +
     'au=document.getElementById("auto"),tv=document.getElementById("tv"),lv=document.getElementById("live"),rows=document.getElementById("rows"),meta=document.getElementById("meta");' +
     'function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]})}' +
-    'function showAuto(on){auto=!!on;au.textContent="Auto info: "+(auto?"on":"off");au.className=auto?"on":""}' +
+    'function setOn(b,on){if(on)b.classList.add("on");else b.classList.remove("on")}' +
+    'function showAuto(on){auto=!!on;setOn(au,auto)}' +
     'au.onclick=function(){fetch("/tv/auto?v="+(auto?"0":"1"),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){showAuto(j.autoInfo)}).catch(function(){})};' +
-    'function paint(d){if(d.rows){rows.innerHTML=d.rows.map(function(r){return"<tr><th>"+esc(r[0])+"</th><td>"+esc(r[1])+"</td></tr>"}).join("")||"<tr><td>No data yet</td></tr>"}' +
+    'function paint(d){if(d.title){document.title=d.title;var h=document.getElementById("ttl");if(h)h.textContent=d.title}if(d.rows){rows.innerHTML=d.rows.map(function(r){return"<tr><th>"+esc(r[0])+"</th><td>"+esc(r[1])+"</td></tr>"}).join("")||"<tr><td>No data yet</td></tr>"}' +
     'if(d.autoInfo!==undefined)showAuto(d.autoInfo);' +
-    'pinned=!!d.pinned;tv.textContent=pinned?"Hide on TV":"Show on TV";if(d.updated)meta.textContent="Updated "+new Date(d.updated).toLocaleTimeString("en-AU")}' +
+    'pinned=!!d.pinned;setOn(tv,pinned);if(d.updated)meta.textContent="Updated "+new Date(d.updated).toLocaleTimeString("en-AU")}' +
     'function poll(){fetch("/status.rows.json",{cache:"no-store"}).then(function(r){return r.json()}).then(paint).catch(function(){})}' +
-    'tv.onclick=function(){fetch(pinned?"/tv/hide":"/tv/show",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){pinned=!!j.pinned;tv.textContent=pinned?"Hide on TV":"Show on TV";window.setTimeout(poll,900)}).catch(function(){})};' +
-    'function setLive(on){live=on;lv.textContent=on?"Live: on":"Live: off";lv.className=on?"on":"";if(timer){window.clearInterval(timer);timer=null}if(on){poll();timer=window.setInterval(poll,5000)}}' +
+    'tv.onclick=function(){fetch(pinned?"/tv/hide":"/tv/show",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){pinned=!!j.pinned;setOn(tv,pinned);window.setTimeout(poll,900)}).catch(function(){})};' +
+    'function setLive(on){live=on;setOn(lv,on);if(timer){window.clearInterval(timer);timer=null}if(on){poll();timer=window.setInterval(poll,5000)}}' +
     'lv.onclick=function(){setLive(!live)};setLive(true)}());</script></body></html>';
 }
 
@@ -499,7 +538,7 @@ http.createServer(function (req, res) {
     headers['Content-Type'] = 'text/html; charset=utf-8'; res.writeHead(200, headers); res.end(infoPage(false));
   } else if (path === '/status.rows.json') {
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
-    res.end(JSON.stringify({ rows: infoRows(snapshot()), pinned: tvPinned, autoInfo: autoInfo, updated: snapshot().updated }));
+    res.end(JSON.stringify({ title: pageTitle(snapshot()), rows: infoRows(snapshot()), pinned: tvPinned, autoInfo: autoInfo, updated: snapshot().updated }));
   } else if (path === '/status.json') {
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify(snapshot()));
   } else { res.writeHead(404, headers); res.end(); }

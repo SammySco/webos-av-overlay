@@ -1,6 +1,6 @@
 {
   "id": "com.sammysco.avoverlay.settings",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "vendor": "eARC Volume Overlay contributors",
   "type": "web",
   "main": "index.html",

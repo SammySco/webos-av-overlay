@@ -4,4 +4,13 @@ release/
 .DS_Store
 *.log
 tv.env
+.env
 dist/
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+dist-android/app-debug.apk

@@ -1,0 +1,37 @@
+services:
+  av-overlay:
+    build: .
+    restart: unless-stopped
+
+    # host networking is required on Linux for the Yamaha UDP event subscription: the amp sends
+    # events back to the IP the HTTP subscription request came from. In bridge mode the container's
+    # NAT IP is unreachable from the amp, so volume/program changes would only be detected by the
+    # 2-second polling fallback instead of instantly. Remove network_mode and uncomment ports: if
+    # you are running on Docker Desktop (Mac/Windows) or need bridge networking.
+    network_mode: host
+    # ports:
+    #   - "41101:41101"
+    #   - "41100:41100/udp"
+
+    volumes:
+      - overlay-data:/data
+      # Mount your SSH private key (must have read access to root@TV).
+      # Set TV_SSH_KEY in .env or export it before running docker compose.
+      - ${TV_SSH_KEY:-~/.ssh/id_rsa}:/run/secrets/tv_ssh_key:ro
+
+    environment:
+      # SSH target for luna-send proxy (user@ip of the TV)
+      EARC_TV_HOST: ${TV_HOST:-root@192.168.1.50}
+
+      # URL that the TV's overlay WebOS app uses to reach back to this watcher.
+      # Must be reachable from the TV — typically http://<this-host-ip>:41101.
+      # Leave empty to keep the default http://127.0.0.1:41101 (TV-local deployment).
+      EARC_WATCHER_URL: ${WATCHER_URL:-}
+
+      # Receiver address (can also be set via http://<host>:41101/setup after first run)
+      EARC_AMP_HOST: ${AMP_HOST:-}
+      EARC_AMP_PORT: ${AMP_PORT:-80}
+      EARC_INFO_PORT: ${INFO_PORT:-41101}
+
+volumes:
+  overlay-data:

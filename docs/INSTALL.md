@@ -75,11 +75,11 @@ In outline:
 ## 6. Install the overlay
 
 ```bash
-git clone https://github.com/SammySco/webos-av-overlay.git
+git clone https://github.com/SammySco/webos-av-overlay
 cd webos-av-overlay
-TV_HOST=root@TV_IP TV_SSH_KEY=/path/to/your/key sh scripts/install.sh
+TV_HOST=root@TV_IP sh scripts/install.sh
 ```
-(`TV_SSH_KEY` is optional if your default key works.) On Windows run it in **Git Bash**, or, with the release archive,
+(`TV_SSH_KEY=/path/to/key` is optional if your default SSH key works.) On Windows run it in **Git Bash**, or, with the release archive,
 just double-click **`Install-AVOverlay.cmd`**: it uses Windows PowerShell and the built-in OpenSSH Client, needs no
 Git or Node, and asks the same questions. From a terminal:
 `powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -TvHost root@TV_IP` (add `-SshKey C:\path\to\key` if your key is not the default).
@@ -99,7 +99,7 @@ Then it starts the service. Check it:
 Optional on the TV: *long-press an unused number key → assign it to the AV Overlay app* (LG's Quick Access). Opening
 the app that way pins the bar; opening it again hides it.
 
-Updates later: `git pull`, then run the same install command again (your settings are kept).
+Updates later: `git pull`, then redeploy with `TV_HOST=root@TV_IP sh scripts/deploy.sh` (your settings are kept).
 Removal: `sh scripts/uninstall.sh` (add `--purge` to delete your settings too).
 
 ## 7. Plex (optional)

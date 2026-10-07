@@ -9,19 +9,27 @@ button{padding:18px 34px;border:2px solid #4a4a51;border-radius:16px;background:
 <div class="panel"><h1 id="title">AV Overlay</h1><p id="msg">Opening settings...</p><button id="retry" style="display:none">Try again</button></div>
 <script>
 (function(){
-var BASE='http://127.0.0.1:41101',msg=document.getElementById('msg'),retry=document.getElementById('retry');
+var BASE=localStorage.getItem('watcherBase')||'http://127.0.0.1:41101';
+var msg=document.getElementById('msg'),retry=document.getElementById('retry');
 function open(){
   retry.style.display='none';msg.textContent='Opening settings...';
   var x=new XMLHttpRequest();x.timeout=3000;
-  x.onload=function(){if(x.status===200)location.replace(BASE+'/setup');else fail()};
+  x.onload=function(){if(x.status===200){localStorage.setItem('watcherBase',BASE);location.replace(BASE+'/setup')}else fail()};
   x.onerror=x.ontimeout=fail;
   try{x.open('GET',BASE+'/status.json',true);x.send()}catch(e){fail()}
 }
 function fail(){
-  msg.textContent='The overlay service is not running. Check that the TV is rooted, then reboot the TV or run the installer again.';
-  retry.style.display='inline-block';retry.focus();
+  if(BASE==='http://127.0.0.1:41101')
+    msg.innerHTML='The overlay service is not running on this TV. Check that it is rooted and reboot, or run the installer again.<br><br>Running the watcher in Docker? Open <b>http://&lt;docker-host&gt;:41101/setup</b> in a browser instead, or tap below to enter the URL.';
+  else
+    msg.innerHTML='Could not reach the watcher at <b>'+BASE+'</b>. Check that the Docker container is running.';
+  retry.style.display='inline-block';retry.textContent='Try again / change URL';retry.focus();
 }
-retry.onclick=open;
+retry.onclick=function(){
+  var u=prompt('Watcher base URL',BASE);
+  if(u){BASE=u.replace(/\/+$/,'');localStorage.setItem('watcherBase',BASE);}
+  open();
+};
 open();
 }());
 </script></body></html>

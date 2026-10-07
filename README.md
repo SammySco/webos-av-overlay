@@ -38,7 +38,7 @@ which showed a numeric volume; this version reads the receiver directly and adds
 - **Info bar** with the sound program, source, audio format, Plex stream details (optional),
   amp processing, video format/HDR and colour. It appears when something changes (switchable), on
   demand, or pinned on screen.
-- **Status page** at `http://<tv>:41101/status` with Show/Hide on TV, a live view, and an Auto info switch.
+- **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info.
 - **Setup page** at `http://<tv>:41101/setup`, also opened by the **AV Overlay Settings** icon on the TV home screen.
 - **Sound program per app**: pick the receiver's sound program for Live TV, each HDMI input, webOS apps (Netflix,
   YouTube, ...), Plex players and, with a small Home Assistant automation, each Apple TV app. See
@@ -49,24 +49,65 @@ which showed a numeric volume; this version reads the receiver directly and adds
 
 - An LG TV that is **rooted** with the [Homebrew Channel](https://www.webosbrew.org/) installed.
   Rooting is not covered here and can void your warranty. Firmware updates can remove root.
-- **SSH access to the TV as root**, ideally with a key (`TV_SSH_KEY`).
-- A **Yamaha receiver with the Extended Control API** (most MusicCast and recent RX-V models), on the same network
-  as the TV. Other brands are not supported.
-- On your computer: **Node.js 18+**, `ssh`/`scp`, and a POSIX shell (macOS, Linux, or Git Bash/WSL on Windows).
+- **SSH access to the TV as root**, ideally with a key.
+- A **Yamaha receiver with the Extended Control API** (most MusicCast and recent RX-V models), on the same LAN.
+  Other brands are not supported.
 - Optional: a Plex server and its token, for stream details when playing from Plex.
+
+## Deployment options
+
+There are two ways to run the watcher process. The TV apps (the visual overlay and the settings launcher) are
+installed the same way in both cases.
+
+### Option A — on the TV (default)
+
+The watcher runs directly on the rooted TV as a background service. Nothing extra is needed.
+
+**Requirements:** Node.js 18+, `ssh`/`scp`, and a POSIX shell (macOS, Linux, or Git Bash/WSL on Windows).
 
 See [docs/INSTALL.md](docs/INSTALL.md) for the full guide, from rooting the TV to Home Assistant.
 
-## Install
-
 ```sh
-git clone https://github.com/SammySco/webos-av-overlay.git
+git clone https://github.com/SammySco/webos-av-overlay
 cd webos-av-overlay
-TV_HOST=root@TV_IP_ADDRESS TV_SSH_KEY=/path/to/key sh scripts/install.sh
+TV_HOST=root@TV_IP sh scripts/install.sh
 ```
 
-**On Windows**, unpack the release archive and double-click `Install-AVOverlay.cmd` (no Git Bash or Node needed, only the
-built-in OpenSSH Client), or run `scripts\install.ps1`; it asks the same questions.
+**On Windows**, unpack the release archive and double-click `Install-AVOverlay.cmd` (no Git Bash or Node needed,
+only the built-in OpenSSH Client), or run `scripts\install.ps1`; it asks the same questions.
+
+### Option B — in Docker (on a home server or Raspberry Pi)
+
+The watcher runs in a Docker container on a separate Linux host on the same LAN. The TV apps are still installed
+on the TV; only the background process moves off the TV. This keeps the TV free of the Node.js runtime and makes
+updates easier.
+
+**Requirements:** a Linux host on the same LAN, Docker Engine, and an SSH key that can reach the TV.
+For instant amp volume events `network_mode: host` is used — this works on Linux Docker Engine but not on
+Docker Desktop (Mac/Windows).
+
+See [docs/DOCKER.md](docs/DOCKER.md) for the full guide.
+
+```sh
+git clone https://github.com/SammySco/webos-av-overlay
+cd webos-av-overlay
+sh scripts/docker/install.sh   # checks prerequisites, configures, and starts the container
+```
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/images/status-page-docker.png" alt="Status page served from the Docker container" width="100%"><br>
+      <sub>The status page at <code>http://&lt;docker-host&gt;:41101/status</code>: current receiver state, Show/Hide on TV, and controls.</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/images/setup-page-docker.png" alt="Setup page served from the Docker container" width="100%"><br>
+      <sub>The setup page at <code>http://&lt;docker-host&gt;:41101/setup</code>: receiver address, Plex, display and sound-program rules.</sub>
+    </td>
+  </tr>
+</table>
+
+---
 
 The installer builds two packages (the overlay and the **AV Overlay Settings** launcher app), installs them,
 asks a few questions, and starts the service:
@@ -78,9 +119,9 @@ asks a few questions, and starts the service:
 | Auto info on/off | Show the info bar by itself when something changes |
 | Info bar position | top-left, top-right or bottom-left |
 
-Every answer can be supplied as an environment variable instead (see the top of `scripts/install.sh`), and
-`EARC_NONINTERACTIVE=1` skips all questions. Settings are stored on the TV in `/home/root/.earc-overlay.json`
-(readable by root only) and can be changed any time at `/setup` or from the TV home screen.
+Every answer can be supplied as an environment variable instead, and `EARC_NONINTERACTIVE=1` skips all questions.
+Settings are stored on the TV in `/home/root/.earc-overlay.json` (readable by root only) and can be changed any
+time at `/setup` or from the TV home screen.
 
 The setup and status pages have no password and are meant for your home network only.
 
@@ -91,8 +132,8 @@ Open **AV Overlay Settings** on the TV home screen, or browse to `http://<tv>:41
 ## Uninstall
 
 ```sh
-TV_HOST=root@TV_IP_ADDRESS TV_SSH_KEY=/path/to/key sh scripts/uninstall.sh          # keeps your settings
-TV_HOST=root@TV_IP_ADDRESS TV_SSH_KEY=/path/to/key sh scripts/uninstall.sh --purge  # also deletes them
+TV_HOST=root@TV_IP sh scripts/uninstall.sh          # keeps your settings
+TV_HOST=root@TV_IP sh scripts/uninstall.sh --purge  # also deletes them
 ```
 
 ## Troubleshooting
