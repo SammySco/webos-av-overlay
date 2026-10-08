@@ -151,7 +151,21 @@ are detected on the TV itself.
    If nothing arrives, run `rest_command.av_overlay_app` from *Developer Tools → Actions* with a test `name`, and
    look at `tail -f /tmp/earc-volume-overlay.log` on the TV for "app pushed".
 
-## 10. Hardening and housekeeping
+## 10. Android companion app (optional)
+
+An Android app wraps the `/status` page in a full-screen WebView so you can check and control the overlay from
+your phone. The app title follows the TV's device name (e.g. *Living Room TV - AV Info*).
+
+1. Download **AV-Overlay-status.apk** from the [latest release](https://github.com/SammySco/webos-av-overlay/releases/latest).
+2. On the phone, allow installs from unknown sources (*Settings → Apps → Special app access → Install unknown apps*,
+   then allow your browser or file manager).
+3. Open the APK to install it.
+4. Open the app and enter the TV's IP address when prompted (for example `192.168.1.50`).
+
+The app requires Android 7.0 or later. Your phone must be on the same Wi-Fi network as the TV.
+The address can be changed any time from the app's menu → **Change TV address**.
+
+## 11. Hardening and housekeeping
 
 - Telnet off (section 4), TV and receiver on fixed addresses, Home Assistant and the TV on the same network.
 - The status and setup pages have **no password**: keep them on your home network and do not expose port 41101 to
@@ -160,7 +174,7 @@ are detected on the TV itself.
 - After any TV firmware or Homebrew Channel change, re-open the status page; if the overlay is not running, run the
   installer again.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | What to check |
 |---|---|
@@ -173,7 +187,7 @@ are detected on the TV itself.
 | Receiver changes at odd times | Check the "Right now" line and the rules at `/setup`, and turn the feature off to compare. |
 | Nothing works after a TV update | Root may have been removed; check the Homebrew Channel, see webosbrew.org. |
 
-## 12. What was and was not tested for this guide
+## 13. What was and was not tested for this guide
 
 Tested by the maintainer on one OLED and one RX-V485: sections 4 to 9, including a clean reinstall. Not tested by
 this project: the rooting itself (section 3), Home Assistant versions other than a recent one, receivers other
