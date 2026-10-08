@@ -25,8 +25,8 @@ which showed a numeric volume; this version reads the receiver directly and adds
       <sub>The status page (<code>/status</code>): current values, Show/Hide on TV, a live view and the Auto info switch.</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <img src="docs/images/setup-receiver-plex.png" alt="The setup page: receiver, Plex and display settings" width="100%"><br>
-      <sub>The setup page (<code>/setup</code>): receiver address, optional Plex, info bar position and volume number. (Addresses are blanked in this picture.)</sub>
+      <img src="docs/images/setup-receiver-plex.png" alt="The setup page: receiver, Plex, Jellyfin and display settings" width="100%"><br>
+      <sub>The setup page (<code>/setup</code>): receiver address, optional Plex and Jellyfin, info bar settings, and per-app sound programs. Sections are collapsible.</sub>
     </td>
   </tr>
 </table>
@@ -35,7 +35,7 @@ which showed a numeric volume; this version reads the receiver directly and adds
 <sub>Per-app sound programs on the setup page: a default, then one rule per input, LG app or Apple TV app, with tick boxes to show or hide each group.</sub>
 
 - **Volume popup** (bottom-right) whenever the receiver's volume or mute changes, including half steps.
-- **Info bar** with the sound program, source, audio format, Plex stream details (optional),
+- **Info bar** with the sound program, source, audio format, Plex or Jellyfin stream details (optional),
   amp processing, video format/HDR and colour. It appears when something changes (switchable), on
   demand, or pinned on screen.
 - **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info.
@@ -52,7 +52,7 @@ which showed a numeric volume; this version reads the receiver directly and adds
 - **SSH access to the TV as root**, ideally with a key.
 - A **Yamaha receiver with the Extended Control API** (most MusicCast and recent RX-V models), on the same LAN.
   Other brands are not supported.
-- Optional: a Plex server and its token, for stream details when playing from Plex.
+- Optional: a **Plex** server and its token, or a **Jellyfin** server and an API key, for stream details.
 
 ## Deployment options
 
@@ -119,6 +119,8 @@ asks a few questions, and starts the service:
 | Auto info on/off | Show the info bar by itself when something changes |
 | Info bar position | top-left, top-right or bottom-left |
 
+Jellyfin is not asked by the installer — configure it at `/setup` after installation.
+
 Every answer can be supplied as an environment variable instead, and `EARC_NONINTERACTIVE=1` skips all questions.
 Settings are stored on the TV in `/home/root/.earc-overlay.json` (readable by root only) and can be changed any
 time at `/setup` or from the TV home screen.
@@ -165,7 +167,7 @@ watching 192.168.1.50 at 42:false
 ## How it works
 
 A root-side Node.js watcher on the TV subscribes to the receiver's events (with a poll as a fallback), reads the
-TV's video output state, and optionally Plex. It launches a transparent web app to draw the volume popup and the
+TV's video output state, and optionally Plex or Jellyfin. It launches a transparent web app to draw the volume popup and the
 info bar, and serves the status and setup pages on port 41101. The app closes itself when nothing is showing,
 because an open overlay window takes the remote's key focus.
 

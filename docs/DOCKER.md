@@ -13,7 +13,7 @@ apps — only the watcher moves into a container.
   │  LG TV       │           │  Docker host               │
   │              │◄──luna────│  av-overlay container      │
   │  WebOS apps  │  (SSH)    │  • polls Yamaha amp        │
-  │  (IPK)       │           │  • polls Plex              │
+  │  (IPK)       │           │  • polls Plex / Jellyfin   │
   │              │──HTTP────►│  • serves :41101/status    │
   └──────────────┘           └────────────────────────────┘
          │                           │
@@ -242,7 +242,7 @@ That is expected — configure it in Step 8.
 
 ---
 
-## Step 8 — Configure the receiver (and optionally Plex)
+## Step 8 — Configure the receiver (and optionally Plex / Jellyfin)
 
 Open the setup page in any browser:
 
@@ -253,6 +253,10 @@ http://192.168.1.50:41101/setup
 Enter the Yamaha receiver's IP address and click **Save**.  The status page
 at `http://192.168.1.50:41101/status` should soon show the current sound
 program and volume.
+
+To add Plex or Jellyfin stream details, expand the relevant section ("Plex (optional)" or
+"Jellyfin (optional)") and enter the server URL and token/API key.  Press **Test Plex** or
+**Test Jellyfin** to verify the connection before saving.
 
 To verify the TV overlay still works, open:
 
@@ -390,6 +394,7 @@ If that fails, check:
 | Amp events (instant) | Yamaha UDP → Docker host port 41100 |
 | Amp polling (fallback) | watcher → HTTP → amp |
 | Plex session details | watcher → HTTP → Plex server |
+| Jellyfin session details | watcher → HTTP → Jellyfin server |
 | TV video/source info | watcher → SSH → `luna-send -i` subscribe on TV |
 | Pin-state / key forwarding | WebOS app → HTTP → `WATCHER_URL:41101` |
 | Settings page | any browser → `http://<docker-host>:41101/setup` |

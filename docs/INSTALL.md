@@ -16,7 +16,7 @@ requirements first, because the biggest one (a rooted TV) decides whether this p
 | **Yamaha receiver with the Extended Control API** | Most MusicCast and recent RX-V models (tested: RX-V485 over eARC). Other brands are not supported. |
 | TV and receiver on the **same network** | Wired is best. Give both a fixed address (DHCP reservation in the router). |
 | A computer (Windows, macOS or Linux) | Used once to install, and to rebuild. |
-| *Optional:* Apple TV, Plex server, Home Assistant | Only needed for the features that use them (sections 7 to 9). |
+| *Optional:* Apple TV, Plex server, Jellyfin server, Home Assistant | Only needed for the features that use them (sections 7 to 10). |
 
 ### Software on the computer
 - **Node.js 18 or newer** (`node -v`), with `npm`.
@@ -111,7 +111,18 @@ Shows codec, channels, bitrate and Direct Play/Transcode for what Plex (or Infus
 3. Enter the URL and token at `/setup` (or in the installer) and press **Test Plex**.
 4. If several Plex clients play at once, set the **Player IP** to the one you care about (for example the Apple TV).
 
-## 8. Sound programs per app
+## 8. Jellyfin (optional)
+
+Shows codec, channels, bitrate and Direct Play/Transcode for what Jellyfin is playing.
+1. **Server URL**: `http://JELLYFIN_SERVER_IP:8096`.
+2. **API key**: in Jellyfin open *Dashboard → API Keys → + (Add API Key)* and give it a name such as
+   `AV Overlay`. The key is shown once — copy and treat it like a password.
+3. Enter the URL and API key at `/setup` (the **AV Overlay Settings** icon) under "Jellyfin (optional)"
+   and press **Test Jellyfin**. The API key is never logged or sent back to the browser.
+4. If several Jellyfin clients play at once, set the **Device / client name** to the one you care about
+   (for example `Infuse` or `Apple TV`).
+
+## 9. Sound programs per app (Yamaha)
 
 At `/setup`, **Sound program per app (Yamaha)**:
 1. Set **Receiver input the TV is on** (usually `audio1`) and, if you use an Apple TV, **Input the Apple TV is on**
@@ -125,7 +136,7 @@ At `/setup`, **Sound program per app (Yamaha)**:
 
 The receiver is only changed when it is on the TV input and its program actually differs.
 
-## 9. Home Assistant (needed only to detect Apple TV apps)
+## 10. Home Assistant (needed only to detect Apple TV apps)
 
 The TV and receiver cannot tell which app is open on an Apple TV, so Home Assistant reports it. Skip this section if
 you do not use an Apple TV, or do not need per-app programs for it. LG apps, Live TV, HDMI inputs and Plex players
@@ -151,7 +162,7 @@ are detected on the TV itself.
    If nothing arrives, run `rest_command.av_overlay_app` from *Developer Tools → Actions* with a test `name`, and
    look at `tail -f /tmp/earc-volume-overlay.log` on the TV for "app pushed".
 
-## 10. Android companion app (optional)
+## 11. Android companion app (optional)
 
 An Android app wraps the `/status` page in a full-screen WebView so you can check and control the overlay from
 your phone. The app title follows the TV's device name (e.g. *Living Room TV - AV Info*).
@@ -165,7 +176,7 @@ your phone. The app title follows the TV's device name (e.g. *Living Room TV - A
 The app requires Android 7.0 or later. Your phone must be on the same Wi-Fi network as the TV.
 The address can be changed any time from the app's menu → **Change TV address**.
 
-## 11. Hardening and housekeeping
+## 12. Hardening and housekeeping
 
 - Telnet off (section 4), TV and receiver on fixed addresses, Home Assistant and the TV on the same network.
 - The status and setup pages have **no password**: keep them on your home network and do not expose port 41101 to
@@ -174,7 +185,7 @@ The address can be changed any time from the app's menu → **Change TV address*
 - After any TV firmware or Homebrew Channel change, re-open the status page; if the overlay is not running, run the
   installer again.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | What to check |
 |---|---|
@@ -187,8 +198,8 @@ The address can be changed any time from the app's menu → **Change TV address*
 | Receiver changes at odd times | Check the "Right now" line and the rules at `/setup`, and turn the feature off to compare. |
 | Nothing works after a TV update | Root may have been removed; check the Homebrew Channel, see webosbrew.org. |
 
-## 13. What was and was not tested for this guide
+## 14. What was and was not tested for this guide
 
-Tested by the maintainer on one OLED and one RX-V485: sections 4 to 9, including a clean reinstall. Not tested by
+Tested by the maintainer on one OLED and one RX-V485: sections 4 to 10, including a clean reinstall. Not tested by
 this project: the rooting itself (section 3), Home Assistant versions other than a recent one, receivers other
 than the RX-V485, and Windows beyond Git Bash.
