@@ -29,7 +29,8 @@ var FOREGROUND_MS = 2000;
 var SEEN_MAX = 40;
 var RULES_MAX = 40;
 var IGNORED_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.livedmost', 'com.sammysco.avoverlay',
-  'com.sammysco.avoverlay.settings', 'com.webos.app.notification', 'com.webos.app.systemui', 'com.webos.app.starfish_flutter_systemui'];
+  'com.sammysco.avoverlay.settings', 'com.webos.app.notification', 'com.webos.app.systemui', 'com.webos.app.starfish_flutter_systemui',
+  'com.webos.app.channeledit', 'com.webos.app.connectionwizard'];
 
 module.exports = function createProfiles(ctx) {
   var features = null, featuresAt = 0;
@@ -319,6 +320,7 @@ module.exports = function createProfiles(ctx) {
       }
       return { inputs: inputs, tvApps: tvApps.slice(), atv: ATV_APPS.slice(), amp: AMP_SOURCES.slice(), seen: cfg().seen.slice() };
     },
+    refreshTitles: function (cb) { loadTitles(cb); },
     lists: function (cb) { loadFeatures(function () { cb(lists()); }); },
     current: function () {
       var c = cfg();

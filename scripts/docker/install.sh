@@ -8,8 +8,8 @@
 # Pre-answer prompts with environment variables or a .env file:
 #   TV_HOST       root@192.168.1.50
 #   TV_SSH_KEY    /home/user/.ssh/tv_key
-#   WATCHER_URL   http://192.168.1.5:41101
-#   AMP_HOST      192.168.1.108
+#   WATCHER_URL   http://192.168.1.50:41101
+#   AMP_HOST      192.168.1.50
 #
 # Works on Ubuntu, Debian (incl. Raspberry Pi OS), Fedora, RHEL, Rocky Linux,
 # and any distribution that supports the get.docker.com convenience script.
@@ -257,7 +257,7 @@ _def_watcher=${WATCHER_URL:-}
 [ -n "$_def_watcher" ] || [ -z "$_lan_ip" ] || _def_watcher="http://$_lan_ip:41101"
 
 WATCHER_URL=$(ask "Watcher URL (reachable from the TV, not 127.0.0.1)" \
-              "${_def_watcher:-http://192.168.1.5:41101}")
+              "${_def_watcher:-http://192.168.1.50:41101}")
 AMP_HOST=$(ask "Yamaha receiver IP address (or leave blank to set via /setup later)" \
            "${AMP_HOST:-}")
 

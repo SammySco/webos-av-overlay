@@ -20,4 +20,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: earc-volume-overlay-ipk
-          path: build/*.ipk
+          path: |
+            build/*.ipk

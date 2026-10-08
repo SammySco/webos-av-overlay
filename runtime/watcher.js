@@ -19,11 +19,12 @@ var EVENT_PORT = 41100;
 var POLL_MS = 2000;
 var SIGNAL_POLL_MS = 3000;
 var RESUBSCRIBE_MS = 5 * 60 * 1000;
-var INFO_DEBOUNCE_MS = 1000;
+var ROW_KEYS = ['program', 'source', 'app', 'audio', 'plex', 'jellyfin', 'processing', 'video', 'colour'];
 // Optional Plex source details. Config file (persistent, survives reinstalls):
 //   /home/root/.earc-plex.json  {"url":"http://<server>:32400","token":"<X-Plex-Token>","player_ip":"<apple tv ip, optional>"}
 var PLEX_CONFIG = process.env.EARC_PLEX_CONFIG || '/home/root/.earc-plex.json';
 var PLEX_POLL_MS = 4000;
+var JELLYFIN_POLL_MS = 4000;
 var INFO_HTTP_PORT = Number(process.env.EARC_INFO_PORT) || 41101; // GET /info shows the bar on demand
 
 var APP_ID = 'com.sammysco.avoverlay';
@@ -31,7 +32,7 @@ var LOG = '/tmp/earc-volume-overlay.log';
 var LUNA = process.env.EARC_LUNA_SEND || '/usr/bin/luna-send';
 // In Docker deployments the watcher runs on a separate machine and the TV's overlay app needs to
 // make HTTP callbacks to the Docker host instead of 127.0.0.1.  Set this to the URL the TV can
-// reach, e.g. http://192.168.1.5:41101.  Passed as watcherBase in every luna launch invocation.
+// reach, e.g. http://192.168.1.50:41101.  Passed as watcherBase in every luna launch invocation.
 var WATCHER_URL = process.env.EARC_WATCHER_URL || '';
 
 var PROGRAMS = {
@@ -54,32 +55,51 @@ var COLOUR = { dcip3d65: 'DCI-P3 D65', dcip3theater: 'DCI-P3', bt2020: 'BT.2020'
 var lastVolume = null, lastError = null, inFlight = false, refetch = false;
 var progKey = null, audioKey = null, videoKey = null;
 var profiles = null;
-var state = { tvName: null, lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null,
+var state = { tvName: null, lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null, jellyfin: null,
   volume: null, mute: false, updated: null };
 var plexKey = null, plexInFlight = false;
+var jellyfinKey = null, jellyfinInFlight = false;
 var procKey = null;
 var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
 var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
-var CORNERS = ['top-left', 'top-right', 'bottom-left'];
-var corner = 'top-left'; // where the info bar sits (the volume popup is bottom-right)
-var VOLUME_MODES = ['amp', 'percent', 'percent1', 'db'];
-var volumeDisplay = 'amp'; // how the volume number is written: the receiver's own display, percent of its range, or decibels
+var CORNERS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+var corner = 'top-left';   // where the info bar sits (the volume popup is bottom-right)
+var infoShowMs = 5000;     // how long the info bar stays visible (ms)
+var infoDelayMs = 1000;    // delay before it appears after a change (ms)
+var infoLayout = 'stack';  // 'stack' (one row per line) or 'banner' (single horizontal line)
+var hiddenRows = [];       // row keys to suppress: any of ROW_KEYS
+var VOLUME_MODES = ['numeric', 'db'];
+var volumeDisplay = 'numeric'; // how the volume number is written: the receiver's numeric scale (0-97) or decibels
+var volFontSize = 100;   // volume number font size as % of base (82px)
+var infoFontSize = 100;  // info bar font size as % of base (24px rows, 27px title)
 var soundSettings = null; // per-app sound program rules (see profiles.js)
 var plexSettings = null; // {url, token, player_ip} from the settings file; falls back to the legacy PLEX_CONFIG file
+var jellyfinSettings = null; // {url, apiKey, deviceName} — apiKey is private: never print, log or commit
 try {
   var loaded = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
   autoInfo = loaded.autoInfo !== false;
   if (CORNERS.indexOf(loaded.corner) >= 0) corner = loaded.corner;
-  if (VOLUME_MODES.indexOf(loaded.volumeDisplay) >= 0) volumeDisplay = loaded.volumeDisplay;
+  var _vd = loaded.volumeDisplay;
+  if (_vd === 'amp' || _vd === 'percent' || _vd === 'percent1') _vd = 'numeric'; // migrate old values
+  if (VOLUME_MODES.indexOf(_vd) >= 0) volumeDisplay = _vd;
   if (typeof loaded.ampHost === 'string' && loaded.ampHost) AMP_HOST = loaded.ampHost;
   if (Number(loaded.ampPort) > 0) AMP_PORT = Number(loaded.ampPort);
   if (loaded.plex && typeof loaded.plex === 'object') plexSettings = loaded.plex;
+  if (loaded.jellyfin && typeof loaded.jellyfin === 'object') jellyfinSettings = loaded.jellyfin;
   if (loaded.sound && typeof loaded.sound === 'object') soundSettings = loaded.sound;
+  if (typeof loaded.infoShowMs === 'number' && loaded.infoShowMs >= 1000 && loaded.infoShowMs <= 60000) infoShowMs = loaded.infoShowMs;
+  if (typeof loaded.infoDelayMs === 'number' && loaded.infoDelayMs >= 0 && loaded.infoDelayMs <= 10000) infoDelayMs = loaded.infoDelayMs;
+  if (loaded.infoLayout === 'banner') infoLayout = 'banner';
+  if (Array.isArray(loaded.hiddenRows)) hiddenRows = loaded.hiddenRows.filter(function (r) { return ROW_KEYS.indexOf(r) >= 0; });
+  if (typeof loaded.volFontSize === 'number' && loaded.volFontSize >= 50 && loaded.volFontSize <= 200) volFontSize = loaded.volFontSize;
+  if (typeof loaded.infoFontSize === 'number' && loaded.infoFontSize >= 50 && loaded.infoFontSize <= 200) infoFontSize = loaded.infoFontSize;
 } catch (e) {}
 function saveSettings() {
   try {
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
-      plex: plexSettings || undefined, sound: soundSettings || undefined }, null, 1), { mode: 384 }); // 0600: may hold the Plex token
+      infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined,
+      volFontSize: volFontSize !== 100 ? volFontSize : undefined, infoFontSize: infoFontSize !== 100 ? infoFontSize : undefined,
+      plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined }, null, 1), { mode: 384 }); // 0600: may hold the Plex token / Jellyfin API key
     fs.chmodSync(SETTINGS_FILE, 384);
   } catch (e) { log('settings save failed: ' + e.message); }
 }
@@ -137,6 +157,20 @@ function ampGet(path, headers, cb) {
   });
   req.on('timeout', function () { req.destroy(new Error('timeout')); });
   req.on('error', function (e) { cb(e); });
+}
+
+// Switch the amp's front-panel volume scale via the YNCA XML API (the same endpoint the web setup UI uses).
+// Called when the overlay's volumeDisplay changes to/from 'db' so the front panel matches.
+function syncAmpVolumeScale(toDb) {
+  if (!AMP_HOST) return;
+  var scale = toDb ? 'dB' : '0-97';
+  var xml = '<?xml version="1.0" encoding="utf-8"?><YAMAHA_AV cmd="PUT"><Main_Zone><Volume><Scale>' + scale + '</Scale></Volume></Main_Zone></YAMAHA_AV>';
+  var req = http.request({ host: AMP_HOST, port: AMP_PORT, method: 'POST', path: '/YamahaRemoteControl/ctrl',
+    headers: { 'Content-Type': 'text/xml', 'Content-Length': Buffer.byteLength(xml) }, timeout: 2000 },
+    function (res) { res.resume(); log('amp volume scale → ' + scale); });
+  req.on('timeout', function () { req.destroy(); });
+  req.on('error', function (e) { log('amp volume scale sync failed: ' + e.message); });
+  req.write(xml); req.end();
 }
 
 // ---------- info card ----------
@@ -235,14 +269,16 @@ setInterval(reachTick, 1000);
 function launchInfo(pin) {
   var al = appLabel();
   var up = ampReachable();
+  var hide = {};
+  hiddenRows.forEach(function (r) { hide[r] = true; });
   var segs = !up
-    ? [lastSeenText(), sourceLabel(), al ? 'App: ' + al : null, state.video, state.colour]
+    ? [lastSeenText(), hide.source ? null : sourceLabel(), hide.app ? null : (al ? 'App: ' + al : null), hide.video ? null : state.video, hide.colour ? null : state.colour]
     : (state.ampLocal
-      ? [inputLabel(state.ampInput), state.nowPlaying, state.audio, state.processing]
-      : [sourceLabel(), al ? 'App: ' + al : null, state.audio, state.plex, state.processing, state.video, state.colour]);
+      ? [inputLabel(state.ampInput), state.nowPlaying, hide.audio ? null : state.audio, hide.processing ? null : state.processing]
+      : [hide.source ? null : sourceLabel(), hide.app ? null : (al ? 'App: ' + al : null), hide.audio ? null : state.audio, hide.plex ? null : state.plex, hide.jellyfin ? null : state.jellyfin, hide.processing ? null : state.processing, hide.video ? null : state.video, hide.colour ? null : state.colour]);
   segs = segs.filter(function (x) { return !!x; });
-  var title = up ? (state.program || 'Sound program') : 'Receiver not responding';
-  var params = { info: { title: title, segs: segs }, corner: corner };
+  var title = hide.program ? '' : (up ? (state.program || 'Sound program') : 'Receiver not responding');
+  var params = { info: { title: title, segs: segs, showMs: infoShowMs, layout: infoLayout }, corner: corner, volFontSize: volFontSize, infoFontSize: infoFontSize };
   log('info bar: ' + title + ' | ' + segs.join(' | '));
   if (pin) { params.pin = true; tvPinned = true; overlayLost = false; }
   else if (tvPinned && overlayLost) return; // the Guide or another system screen closed the bar: do not pop up over it
@@ -257,7 +293,7 @@ function scheduleInfo(reason, delay, pin, force) {
   infoTimer = setTimeout(function () {
     infoTimer = null;
     launchInfo(pin);
-  }, delay === undefined ? INFO_DEBOUNCE_MS : delay);
+  }, delay === undefined ? infoDelayMs : delay);
 }
 
 // On demand: show the bar straight away from the last known state (the app's cold start is the slow
@@ -270,6 +306,7 @@ function showInfoNow(via, pin) {
   fetchStatus(false);
   fetchSignal();
   fetchPlex();
+  fetchJellyfin();
   scheduleInfo('on demand refresh', 700, pin, true);
 }
 
@@ -341,7 +378,7 @@ function snapshot() {
   var up = ampReachable();
   return { tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
     program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null,
-    plex: state.plex, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
+    plex: state.plex, jellyfin: state.jellyfin, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
 }
 
@@ -358,6 +395,7 @@ function infoRows(d) {
   var rows = [
     ['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
     ['Source', d.sourceLabel || d.source], ['App', d.appLabel], ['Audio (amp)', d.audio], ['Plex', d.plex ? d.plex.replace(/^Plex: /, '') : null],
+    ['Jellyfin', d.jellyfin ? d.jellyfin.replace(/^Jellyfin: /, '') : null],
     ['Processing', d.processing], ['Video', d.video], ['Colour', d.colour]
   ];
   return rows.filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
@@ -374,7 +412,7 @@ function infoPage(shownOnTv) {
     'body{margin:0;padding:max(10px,1.2vh) 14px;font:16px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#111114;color:#eee;overflow:hidden}' +
     'main{max-width:720px;margin:0 auto;height:100%;display:flex;flex-direction:column;gap:max(6px,1vh)}' +
     'h1{font-size:clamp(15px,2.6vh,22px);font-weight:600;margin:0}p#meta{margin:0;color:#8b8b93;font-size:clamp(11px,1.7vh,14px)}' +
-    '.box{flex:1 1 auto;min-height:0;overflow:hidden}' +
+    '.box{flex:0 0 auto}' +
     'table{width:100%;border-collapse:collapse;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;overflow:hidden;font-size:clamp(11px,1.95vh,16px)}' +
     'th,td{text-align:left;padding:.45em .7em;border-bottom:1px solid #2a2a30;vertical-align:top;line-height:1.25}tr:last-child th,tr:last-child td{border-bottom:0}' +
     'th{width:32%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}' +
@@ -419,8 +457,18 @@ function applySettings(v) {
   if (v.ampHost !== undefined && v.ampHost !== AMP_HOST) { AMP_HOST = v.ampHost; ampChanged = true; }
   if (v.ampPort !== undefined && v.ampPort !== AMP_PORT) { AMP_PORT = v.ampPort; ampChanged = true; }
   if (v.corner) corner = v.corner;
-  if (v.volumeDisplay && VOLUME_MODES.indexOf(v.volumeDisplay) >= 0) volumeDisplay = v.volumeDisplay;
+  if (v.volumeDisplay && VOLUME_MODES.indexOf(v.volumeDisplay) >= 0) {
+    var prevVolumeDisplay = volumeDisplay;
+    volumeDisplay = v.volumeDisplay;
+    if (volumeDisplay !== prevVolumeDisplay) syncAmpVolumeScale(volumeDisplay === 'db');
+  }
   if (v.autoInfo !== undefined) autoInfo = v.autoInfo;
+  if (typeof v.infoShowMs === 'number') infoShowMs = v.infoShowMs;
+  if (typeof v.infoDelayMs === 'number') infoDelayMs = v.infoDelayMs;
+  if (v.infoLayout !== undefined) infoLayout = v.infoLayout;
+  if (v.hiddenRows !== undefined) hiddenRows = v.hiddenRows;
+  if (typeof v.volFontSize === 'number' && v.volFontSize >= 50 && v.volFontSize <= 200) volFontSize = v.volFontSize;
+  if (typeof v.infoFontSize === 'number' && v.infoFontSize >= 50 && v.infoFontSize <= 200) infoFontSize = v.infoFontSize;
   if (v.sound) soundSettings = v.sound;
   if (v.plexClear) plexSettings = { disabled: true };
   else if (v.plexUrl !== undefined) {
@@ -432,15 +480,26 @@ function applySettings(v) {
       plexSettings = { url: v.plexUrl, token: token, player_ip: v.plexPlayer || undefined };
     }
   }
+  if (v.jellyfinClear) jellyfinSettings = { disabled: true };
+  else if (v.jellyfinUrl !== undefined) {
+    var jcur = readJellyfinConfig();
+    if (!v.jellyfinUrl) jellyfinSettings = { disabled: true };
+    else {
+      var apiKey = v.jellyfinApiKey || (jcur && jcur.url === v.jellyfinUrl ? jcur.apiKey : '');
+      if (!apiKey) return { error: 'Enter the Jellyfin API key for this server' };
+      jellyfinSettings = { url: v.jellyfinUrl, apiKey: apiKey, deviceName: v.jellyfinDevice || undefined };
+    }
+  }
   saveSettings();
   log('settings saved (amp ' + (AMP_HOST || 'not set') + ':' + AMP_PORT + ', corner ' + corner + ', auto info ' + (autoInfo ? 'on' : 'off') +
-    ', plex ' + (readPlexConfig() ? 'on' : 'off') + ')');
+    ', plex ' + (readPlexConfig() ? 'on' : 'off') + ', jellyfin ' + (readJellyfinConfig() ? 'on' : 'off') + ')');
   if (ampChanged) {
     lastVolume = null; progKey = null; audioKey = null; procKey = null; lastError = null;
     state.volume = null; state.program = null; state.audio = null; state.processing = null;
     fetchStatus(true); fetchSignal();
   }
   fetchPlex();
+  fetchJellyfin();
   return {};
 }
 
@@ -461,11 +520,15 @@ var setupHandler = require('./setup.js')({
   corners: CORNERS,
   volumeModes: VOLUME_MODES,
   getSettings: function () {
-    var p = readPlexConfig();
+    var p = readPlexConfig(), j = readJellyfinConfig();
     return { ampHost: AMP_HOST, ampPort: AMP_PORT, autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay,
-      plexUrl: p ? p.url : '', plexPlayer: p && p.player_ip ? p.player_ip : '', plexTokenSet: !!p };
+      infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows,
+      plexUrl: p ? p.url : '', plexPlayer: p && p.player_ip ? p.player_ip : '', plexTokenSet: !!p,
+      jellyfinUrl: j ? j.url : '', jellyfinDevice: j && j.deviceName ? j.deviceName : '', jellyfinApiKeySet: !!j,
+      volFontSize: volFontSize, infoFontSize: infoFontSize };
   },
   getPlexSecret: function () { return readPlexConfig(); },
+  getJellyfinSecret: function () { return readJellyfinConfig(); },
   applySettings: applySettings
 });
 
@@ -552,12 +615,8 @@ function readVolume(s) {
   return Number(s.volume) / 2;
 }
 
-// The number shown for the volume. 'amp' is what the receiver's display shows; 'percent' is the receiver's raw
-// volume step over its maximum (what apps with a percentage slider show); 'db' is decibels.
+// The number shown for the volume. 'numeric' mirrors the receiver's 0-97 display; 'db' shows decibels.
 function volumeText(s, value) {
-  var raw = Number(s.volume), max = Number(s.max_volume) || 161;
-  if (volumeDisplay === 'percent' && isFinite(raw)) return Math.round(raw / max * 100) + '%';
-  if (volumeDisplay === 'percent1' && isFinite(raw)) return (raw / max * 100).toFixed(1) + '%'; // one receiver step is 0.6%
   if (volumeDisplay === 'db') {
     var av = s.actual_volume, db = (av && av.mode === 'db') ? value : value - 80.5; // numeric 0-97 maps to -80.5 .. +16.5 dB
     return db.toFixed(1) + ' dB';
@@ -575,11 +634,11 @@ function dB(steps) {
 // repeating it shortly afterwards guarantees the popup appears (a relaunch just refreshes it).
 var volTimer = null;
 function showVolume(value, mute) {
-  launch({ volume: value, mute: mute, text: state.volumeText, output: 'yamaha' });
+  launch({ volume: value, mute: mute, text: state.volumeText, output: 'yamaha', volFontSize: volFontSize, infoFontSize: infoFontSize });
   if (volTimer) clearTimeout(volTimer);
   volTimer = setTimeout(function () {
     volTimer = null;
-    launch({ volume: state.volume, mute: state.mute, text: state.volumeText, output: 'yamaha' });
+    launch({ volume: state.volume, mute: state.mute, text: state.volumeText, output: 'yamaha', volFontSize: volFontSize, infoFontSize: infoFontSize });
   }, 600);
 }
 
@@ -828,6 +887,94 @@ function fetchPlex() {
   req.on('error', function (e) { plexInFlight = false; log('plex: ' + e.message); });
 }
 
+// ---------- Jellyfin (optional media info) ----------
+function readJellyfinConfig() {
+  if (jellyfinSettings && jellyfinSettings.disabled) return null;
+  if (jellyfinSettings && jellyfinSettings.url && jellyfinSettings.apiKey) return jellyfinSettings;
+  return null;
+}
+
+function jellyfinAudio(a) {
+  if (!a) return null;
+  var title = (a.DisplayTitle || '').trim();
+  if (title) {
+    if (a.BitRate) title += ' · ' + Math.round(a.BitRate / 1000) + ' kbps';
+    return title;
+  }
+  var codec = String(a.Codec || '').toLowerCase();
+  var codecNames = { truehd: 'TrueHD', eac3: 'DD+', ac3: 'Dolby Digital', aac: 'AAC',
+    flac: 'FLAC', opus: 'Opus', mp3: 'MP3', dca: 'DTS', dts: 'DTS', vorbis: 'Vorbis' };
+  var name = codecNames[codec] || codec.toUpperCase();
+  var ch = String(a.ChannelLayout || '');
+  if (!ch && a.Channels) ch = { 1: '1.0', 2: '2.0', 6: '5.1', 7: '6.1', 8: '7.1' }[a.Channels] || (a.Channels + 'ch');
+  var out = name + (ch ? ' ' + ch : '');
+  if (a.BitRate) out += ' · ' + Math.round(a.BitRate / 1000) + ' kbps';
+  return out;
+}
+
+function jellyfinSummary(session) {
+  var item = session.NowPlayingItem || {}, streams = item.MediaStreams || [];
+  var audio = null, video = null;
+  streams.forEach(function (s) {
+    if (s.Type === 'Audio' && (s.IsDefault || !audio)) audio = s;
+    if (s.Type === 'Video' && !video) video = s;
+  });
+  var bits = [];
+  var audioLabel = jellyfinAudio(audio);
+  if (audioLabel) bits.push(audioLabel);
+  if (video && video.DisplayTitle) bits.push(video.DisplayTitle);
+  var tc = session.TranscodingInfo;
+  var decision = !tc ? 'Direct Play' : (tc.IsVideoDirect && tc.IsAudioDirect) ? 'Direct Stream' : 'Transcode';
+  bits.push(decision);
+  return { text: 'Jellyfin: ' + bits.join(' · '), key: [(item.Id || ''), (audio && audio.Index), decision].join('|') };
+}
+
+function pickJellyfinSession(list, cfg) {
+  var active = list.filter(function (s) { return !!s.NowPlayingItem; });
+  if (cfg.deviceName) {
+    var dn = cfg.deviceName.toLowerCase();
+    return active.filter(function (s) {
+      return (s.DeviceName || '').toLowerCase().indexOf(dn) >= 0 ||
+             (s.Client || '').toLowerCase().indexOf(dn) >= 0;
+    })[0] || null;
+  }
+  return active[0] || null;
+}
+
+function clearJellyfin() { state.jellyfin = null; jellyfinKey = null; }
+
+function fetchJellyfin() {
+  if (jellyfinInFlight) return;
+  if (!state.source || state.source.indexOf('HDMI') !== 0) { clearJellyfin(); return; }
+  var cfg = readJellyfinConfig();
+  if (!cfg) { clearJellyfin(); return; }
+  var u;
+  try { u = new (require('url').URL)(cfg.url.replace(/\/+$/, '') + '/Sessions'); } catch (e) { log('jellyfin: bad url'); return; }
+  var mod = u.protocol === 'https:' ? https : http;
+  jellyfinInFlight = true;
+  var req = mod.get({ host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname,
+    headers: { Accept: 'application/json', 'X-MediaBrowser-Token': cfg.apiKey }, timeout: 2500,
+    rejectUnauthorized: false }, function (res) {
+    var body = '';
+    res.setEncoding('utf8');
+    res.on('data', function (c) { body += c; });
+    res.on('end', function () {
+      jellyfinInFlight = false;
+      if (res.statusCode !== 200) { log('jellyfin: HTTP ' + res.statusCode); return; }
+      var list = [];
+      try { list = JSON.parse(body); } catch (e) { log('jellyfin: parse error'); return; }
+      if (!Array.isArray(list)) { clearJellyfin(); return; }
+      var session = pickJellyfinSession(list, cfg);
+      if (!session) { clearJellyfin(); return; }
+      var sum = jellyfinSummary(session);
+      state.jellyfin = sum.text;
+      if (sum.key !== jellyfinKey) { jellyfinKey = sum.key; scheduleInfo(sum.text); }
+    });
+  });
+  req.on('timeout', function () { req.destroy(new Error('timeout')); });
+  req.on('error', function (e) { jellyfinInFlight = false; log('jellyfin: ' + e.message); });
+}
+
 // ---------- amp UDP events ----------
 var sock = dgram.createSocket('udp4');
 sock.on('message', function (msg) {
@@ -860,4 +1007,5 @@ setInterval(function () { fetchStatus(true); }, RESUBSCRIBE_MS);
 setInterval(function () { fetchStatus(false); }, POLL_MS);
 setInterval(fetchSignal, SIGNAL_POLL_MS);
 setInterval(fetchPlex, PLEX_POLL_MS);
+setInterval(fetchJellyfin, JELLYFIN_POLL_MS);
 setInterval(fetchNowPlaying, 4000); // fallback for network sources whose events are missed
