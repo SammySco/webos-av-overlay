@@ -129,6 +129,15 @@ The setup and status pages have no password and are meant for your home network 
 
 Open **AV Overlay Settings** on the TV home screen, or browse to `http://<tv>:41101/setup`. Changes apply immediately.
 
+## Android companion app
+
+An Android app wraps the status page in a full-screen WebView so you can check the current state and control
+the overlay from your phone. The app title updates to match the TV's device name (e.g. *Living Room TV - AV Info*).
+
+Download **AV-Overlay-status.apk** from the [latest release](https://github.com/SammySco/webos-av-overlay/releases/latest),
+install it (allow installs from unknown sources), and enter your TV's IP address when prompted.
+It requires Android 7.0 or later and your phone to be on the same Wi-Fi as the TV.
+
 ## Uninstall
 
 ```sh
