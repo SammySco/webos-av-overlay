@@ -8,8 +8,7 @@
 //   POST /setup/sound/apply     run the sound-program rules now
 // The Plex token and Jellyfin API key are write-only: never sent back to the browser or written to the log.
 
-var http = require('http');
-var https = require('https');
+var shared = require('./shared.js');
 
 var HOST_RE = /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/;
 var IP_RE = /^[0-9A-Fa-f:.]+$/;
@@ -25,7 +24,7 @@ function readJson(req, cb) {
   req.setEncoding('utf8');
   req.on('data', function (c) {
     body += c;
-    if (body.length > 32768 && !done) { done = true; cb(new Error('too large')); req.destroy(); }
+    if (body.length > 32768 && !done) { done = true; cb(Object.assign(new Error('too large'), { status: 413 })); req.resume(); }
   });
   req.on('end', function () {
     if (done) return;
@@ -41,7 +40,7 @@ function validUrl(u) {
 
 module.exports = function createSetup(ctx) {
   function send(res, code, obj) {
-    res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); // no CORS header: the setup page is same-origin
     res.end(JSON.stringify(obj));
   }
 
@@ -226,68 +225,38 @@ module.exports = function createSetup(ctx) {
     if (!HOST_RE.test(host || '')) return cb(new Error('Enter a valid IP address or hostname'));
     port = Number(port) || 80;
     if (port < 1 || port > 65535) return cb(new Error('Port must be 1-65535'));
-    var req = http.get({ host: host, port: port, path: '/YamahaExtendedControl/v1/system/getDeviceInfo', timeout: 2500 }, function (res) {
-      var b = '';
-      res.setEncoding('utf8');
-      res.on('data', function (c) { if (b.length < 65536) b += c; });
-      res.on('end', function () {
-        var j = null;
-        try { j = JSON.parse(b); } catch (e) {}
-        if (j && j.response_code === 0) cb(null, { model: j.model_name || 'Yamaha receiver', version: j.api_version });
-        else cb(new Error('Something answered, but it is not a Yamaha Extended Control receiver'));
-      });
+    shared.getJson({ host: host, port: port, path: '/YamahaExtendedControl/v1/system/getDeviceInfo', timeout: 2500, maxBytes: 65536 }, function (err, j) {
+      if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from ' + host + ':' + port : err.message));
+      if (j && j.response_code === 0) cb(null, { model: j.model_name || 'Yamaha receiver', version: j.api_version });
+      else cb(new Error('Something answered, but it is not a Yamaha Extended Control receiver'));
     });
-    req.on('timeout', function () { req.destroy(new Error('No answer from ' + host + ':' + port)); });
-    req.on('error', function (e) { cb(new Error(e.message)); });
+  }
+
+  // Shared by the Plex and Jellyfin tests. The saved secret is only ever used for the saved server, never for an address typed into the form.
+  function testMediaServer(name, example, url, secret, saved, path, header, count, cb) {
+    if (!validUrl(url)) return cb(new Error('Enter a full URL such as ' + example));
+    secret = secret || (saved && saved.url === url ? (saved.token || saved.apiKey) : '');
+    if (!secret) return cb(new Error('Enter the ' + (name === 'Plex' ? 'Plex token' : 'Jellyfin API key')));
+    var headers = { Accept: 'application/json' };
+    headers[header] = secret;
+    shared.getJson({ url: url.replace(/\/+$/, '') + path, headers: headers, timeout: 3000, verifyTls: !!(saved && saved.url === url && saved.verifyTls === true) }, function (err, j, code) {
+      if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from the ' + name + ' server' : err.message));
+      if (code === 401) return cb(new Error(name + ' rejected the ' + (name === 'Plex' ? 'token' : 'API key')));
+      if (code !== 200) return cb(new Error(name + ' answered HTTP ' + code));
+      var n = 0;
+      try { n = count(j); } catch (e) {}
+      cb(null, { sessions: n });
+    });
   }
 
   function testPlex(url, token, cb) {
-    if (!validUrl(url)) return cb(new Error('Enter a full URL such as http://192.168.1.10:32400'));
-    var s = ctx.getPlexSecret();
-    // the saved token is only ever used for the saved server, never for an address typed into the form
-    token = token || (s && s.url === url ? s.token : '');
-    if (!token) return cb(new Error('Enter the Plex token'));
-    var u = new (require('url').URL)(url.replace(/\/+$/, '') + '/status/sessions');
-    var mod = u.protocol === 'https:' ? https : http;
-    var req = mod.get({ hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname,
-      headers: { Accept: 'application/json', 'X-Plex-Token': token }, timeout: 3000, rejectUnauthorized: false }, function (res) {
-      var b = '';
-      res.setEncoding('utf8');
-      res.on('data', function (c) { if (b.length < 262144) b += c; });
-      res.on('end', function () {
-        if (res.statusCode === 401) return cb(new Error('Plex rejected the token'));
-        if (res.statusCode !== 200) return cb(new Error('Plex answered HTTP ' + res.statusCode));
-        var n = 0;
-        try { n = Number(JSON.parse(b).MediaContainer.size) || 0; } catch (e) {}
-        cb(null, { sessions: n });
-      });
-    });
-    req.on('timeout', function () { req.destroy(new Error('No answer from the Plex server')); });
-    req.on('error', function (e) { cb(new Error(e.message)); });
+    testMediaServer('Plex', 'http://192.168.1.10:32400', url, token, ctx.getPlexSecret(), '/status/sessions', 'X-Plex-Token',
+      function (j) { return Number(j.MediaContainer.size) || 0; }, cb);
   }
 
   function testJellyfin(url, apiKey, cb) {
-    if (!validUrl(url)) return cb(new Error('Enter a full URL such as http://192.168.1.10:8096'));
-    var s = ctx.getJellyfinSecret();
-    apiKey = apiKey || (s && s.url === url ? s.apiKey : '');
-    if (!apiKey) return cb(new Error('Enter the Jellyfin API key'));
-    var u = new (require('url').URL)(url.replace(/\/+$/, '') + '/Sessions');
-    var mod = u.protocol === 'https:' ? https : http;
-    var req = mod.get({ hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname,
-      headers: { Accept: 'application/json', 'X-MediaBrowser-Token': apiKey }, timeout: 3000, rejectUnauthorized: false }, function (res) {
-      var b = '';
-      res.setEncoding('utf8');
-      res.on('data', function (c) { if (b.length < 262144) b += c; });
-      res.on('end', function () {
-        if (res.statusCode === 401) return cb(new Error('Jellyfin rejected the API key'));
-        if (res.statusCode !== 200) return cb(new Error('Jellyfin answered HTTP ' + res.statusCode));
-        var n = 0;
-        try { n = JSON.parse(b).filter(function (x) { return !!x.NowPlayingItem; }).length; } catch (e) {}
-        cb(null, { sessions: n });
-      });
-    });
-    req.on('timeout', function () { req.destroy(new Error('No answer from the Jellyfin server')); });
-    req.on('error', function (e) { cb(new Error(e.message)); });
+    testMediaServer('Jellyfin', 'http://192.168.1.10:8096', url, apiKey, ctx.getJellyfinSecret(), '/Sessions', 'X-MediaBrowser-Token',
+      function (j) { return j.filter(function (x) { return !!x.NowPlayingItem; }).length; }, cb);
   }
 
   function validate(b) {
@@ -322,16 +291,15 @@ module.exports = function createSetup(ctx) {
     }
     if (b.hiddenRows !== undefined) {
       if (!Array.isArray(b.hiddenRows)) return { error: 'Invalid hidden rows' };
-      var rowKeys = ['program', 'source', 'app', 'audio', 'plex', 'jellyfin', 'processing', 'video', 'colour'];
-      out.hiddenRows = b.hiddenRows.filter(function (r) { return rowKeys.indexOf(r) >= 0; });
+      out.hiddenRows = b.hiddenRows.filter(function (r) { return shared.ROW_KEYS.indexOf(r) >= 0; });
     }
     if (b.volFontSize !== undefined) {
-      var vfs = [75, 100, 125, 150].indexOf(Number(b.volFontSize)) >= 0 ? Number(b.volFontSize) : null;
+      var vfs = shared.FONT_SIZES.indexOf(Number(b.volFontSize)) >= 0 ? Number(b.volFontSize) : null;
       if (!vfs) return { error: 'Invalid volume font size' };
       out.volFontSize = vfs;
     }
     if (b.infoFontSize !== undefined) {
-      var ifs = [75, 100, 125, 150].indexOf(Number(b.infoFontSize)) >= 0 ? Number(b.infoFontSize) : null;
+      var ifs = shared.FONT_SIZES.indexOf(Number(b.infoFontSize)) >= 0 ? Number(b.infoFontSize) : null;
       if (!ifs) return { error: 'Invalid info font size' };
       out.infoFontSize = ifs;
     }
@@ -366,8 +334,21 @@ module.exports = function createSetup(ctx) {
     return { value: out };
   }
 
+  // A browser tab on another site must not be able to change settings: a cross-site POST carries an Origin that differs from Host.
+  // Scripts such as curl send no Origin and are allowed through (this is a LAN device without accounts).
+  function crossSite(req) {
+    var o = req.headers.origin;
+    if (!o) return false;
+    try { return new (require('url').URL)(o).host !== req.headers.host; } catch (e) { return true; }
+  }
+  function isJson(req) { return /^application\/json\b/i.test(req.headers['content-type'] || ''); }
+
   // returns true when the request was handled
   return function handle(req, res, path) {
+    if (req.method === 'POST' && path.indexOf('/setup/') === 0) {
+      if (crossSite(req)) { send(res, 403, { ok: false, error: 'Cross-site request refused' }); return true; }
+      if (!isJson(req)) { send(res, 415, { ok: false, error: 'Send JSON (Content-Type: application/json)' }); return true; }
+    }
     if (path === '/setup' && req.method === 'GET') {
       ctx.profiles.lists(function (L) {
         L.choices = ctx.profiles.choices();
@@ -393,7 +374,7 @@ module.exports = function createSetup(ctx) {
     }
     if (path === '/setup/save' && req.method === 'POST') {
       readJson(req, function (err, b) {
-        if (err) return send(res, 400, { ok: false, error: err.message });
+        if (err) return send(res, err.status || 400, { ok: false, error: err.message });
         var v = validate(b);
         if (v.error) return send(res, 400, { ok: false, error: v.error });
         var r = ctx.applySettings(v.value);
@@ -403,7 +384,7 @@ module.exports = function createSetup(ctx) {
     }
     if (path === '/setup/test' && req.method === 'POST') {
       readJson(req, function (err, b) {
-        if (err) return send(res, 400, { ok: false, error: err.message });
+        if (err) return send(res, err.status || 400, { ok: false, error: err.message });
         if (b.kind === 'amp') testAmp(String(b.host || '').trim(), b.port, function (e, info) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, model: info.model, version: info.version });
         });

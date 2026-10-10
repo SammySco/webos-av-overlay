@@ -17,4 +17,4 @@ echo "==> Cleaning build cache..."
 rm -rf build
 
 echo "==> Building and installing..."
-EARC_NONINTERACTIVE=1 sh scripts/install.sh "$@"
+EARC_NONINTERACTIVE=1 sh scripts/install.sh

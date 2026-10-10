@@ -129,7 +129,7 @@ apps, copy it to the Docker host:
 
 ```bash
 # On the PC that already has TV access — copy the key to the Docker host:
-scp ~/.ssh/id_rsa user@192.168.1.50:~/.ssh/tv_id_rsa
+scp ~/.ssh/id_rsa user@192.168.1.5:~/.ssh/tv_id_rsa
 ```
 
 If you need to create a new key pair on the Docker host:
@@ -172,10 +172,10 @@ TV_SSH_KEY=/home/youruser/.ssh/tv_id_rsa
 
 # URL the TV's overlay app uses to reach this watcher.
 # Use this host's LAN IP — the TV must be able to reach it.
-WATCHER_URL=http://192.168.1.50:41101
+WATCHER_URL=http://192.168.1.5:41101
 
 # Yamaha receiver IP (or leave blank and enter it via the /setup page)
-AMP_HOST=192.168.1.50
+AMP_HOST=192.168.1.108
 ```
 
 `~` expansion does **not** work in Docker Compose env files — use the full
@@ -229,7 +229,7 @@ docker compose ps
 docker compose logs -f
 # 2026-10-08T... listening for amp events on udp/41100
 # 2026-10-08T... on-demand info at http://<tv>:41101/info
-# 2026-10-08T... watching 192.168.1.50 at 42:false
+# 2026-10-08T... watching 192.168.1.108 at 42:false
 ```
 
 If the amp is not yet configured you will see:
@@ -247,11 +247,11 @@ That is expected — configure it in Step 8.
 Open the setup page in any browser:
 
 ```
-http://192.168.1.50:41101/setup
+http://192.168.1.5:41101/setup
 ```
 
 Enter the Yamaha receiver's IP address and click **Save**.  The status page
-at `http://192.168.1.50:41101/status` should soon show the current sound
+at `http://192.168.1.5:41101/status` should soon show the current sound
 program and volume.
 
 To add Plex or Jellyfin stream details, expand the relevant section ("Plex (optional)" or
@@ -261,7 +261,7 @@ To add Plex or Jellyfin stream details, expand the relevant section ("Plex (opti
 To verify the TV overlay still works, open:
 
 ```
-http://192.168.1.50:41101/info
+http://192.168.1.5:41101/info
 ```
 
 The info bar should appear on the TV.
@@ -355,7 +355,7 @@ docker compose down -v
   sudo ufw allow 41101/tcp   # if using ufw
   ```
 
-### Amp events are not instant (only 2-second polling)
+### Amp events are not instant (only polling)
 
 `network_mode: host` is required for UDP events to work.  Confirm the
 container is in host mode:
@@ -396,5 +396,6 @@ If that fails, check:
 | Plex session details | watcher → HTTP → Plex server |
 | Jellyfin session details | watcher → HTTP → Jellyfin server |
 | TV video/source info | watcher → SSH → `luna-send -i` subscribe on TV |
+| Foreground app / running apps | watcher → SSH → `luna-send -i` subscribe on TV (15 s and 10 s safety polls) |
 | Pin-state / key forwarding | WebOS app → HTTP → `WATCHER_URL:41101` |
 | Settings page | any browser → `http://<docker-host>:41101/setup` |

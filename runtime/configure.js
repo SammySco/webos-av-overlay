@@ -6,10 +6,11 @@
 // Secrets (the Plex token) travel on stdin only, never on a command line, and are never printed.
 
 var fs = require('fs');
+var shared = require('./shared.js');
 
 var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
 var PLEX_LEGACY = process.env.EARC_PLEX_CONFIG || '/home/root/.earc-plex.json';
-var CORNERS = ['top-left', 'top-right', 'bottom-left'];
+var CORNERS = shared.CORNERS;
 var HOST_RE = /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/;
 
 function readJson(file) {
@@ -63,8 +64,7 @@ function set(input) {
     var p = plexNow(s);
     s.plex = { url: p.url, token: p.token, player_ip: v.plexPlayer };
   }
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 1), { mode: 384 }); // 0600
-  fs.chmodSync(SETTINGS_FILE, 384);
+  shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify(s, null, 1));
   console.log('settings saved');
 }
 

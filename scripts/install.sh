@@ -12,7 +12,7 @@
 #   EARC_PLEX_TOKEN       Plex token (never put this in shell history; the prompt hides it)
 #   EARC_PLEX_PLAYER_IP   only show the Plex session from this player
 #   EARC_AUTO_INFO        on|off  show the info bar by itself when the stream/amp info changes
-#   EARC_CORNER           top-left|top-right|bottom-left
+#   EARC_CORNER           top-left|top-center|top-right|middle-left|middle-right|bottom-left|bottom-center|bottom-right
 # Everything can be changed later at http://TV_IP:41101/setup or from the AV Overlay Settings app.
 set -eu
 cd "$(dirname "$0")/.."
@@ -134,7 +134,7 @@ if [ "$INTERACTIVE" = 1 ]; then
 
 	if [ -z "$CORNER" ]; then
 		DEF_CORNER=$(cur corner); [ -n "$DEF_CORNER" ] || DEF_CORNER=top-left
-		printf 'Info bar position (top-left, top-right, bottom-left) [%s]: ' "$DEF_CORNER"
+		printf 'Info bar position (top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center, bottom-right) [%s]: ' "$DEF_CORNER"
 		read -r CORNER || CORNER=
 		[ -n "$CORNER" ] || CORNER=$DEF_CORNER
 	fi

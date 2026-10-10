@@ -88,7 +88,7 @@ The installer builds two packages, installs them (the overlay and the **AV Overl
 - **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there.
 - **Plex** (optional): server URL, token (typing is hidden) and the player's IP. Press `n` to skip.
 - **Auto info**: whether the info bar appears by itself when something changes.
-- **Info bar position**: top-left, top-right or bottom-left.
+- **Info bar position**: top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right.
 
 Then it starts the service. Check it:
 - Open `http://TV_IP:41101/status`. It should show the sound program, volume, audio and video.
@@ -180,7 +180,12 @@ The address can be changed any time from the app's menu → **Change TV address*
 
 - Telnet off (section 4), TV and receiver on fixed addresses, Home Assistant and the TV on the same network.
 - The status and setup pages have **no password**: keep them on your home network and do not expose port 41101 to
-  the internet.
+  the internet. Saving settings from a web page on another site is refused (the request's Origin must match the TV's
+  address, and the body must be JSON); curl and scripts are not affected.
+- Plex and Jellyfin certificates are not verified by default, because home servers usually use self-signed ones. To
+  verify, add `"verifyTls": true` to the `plex` or `jellyfin` block in `/home/root/.earc-overlay.json`.
+- If the settings file ever becomes unreadable, the watcher keeps a copy as `/home/root/.earc-overlay.json.bad`
+  before anything can overwrite it.
 - Use an SSH key and, if you set one, change the TV's root password.
 - After any TV firmware or Homebrew Channel change, re-open the status page; if the overlay is not running, run the
   installer again.

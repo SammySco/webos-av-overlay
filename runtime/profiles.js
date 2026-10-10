@@ -12,7 +12,7 @@
 // Nothing is changed unless "enabled" is on, the receiver is on the configured TV input, and a rule (or the
 // default) matches. The receiver is only commanded when its current program differs from the target.
 
-var execFile = require('child_process').execFile;
+var shared = require('./shared.js');
 
 var DEFAULT_PROGRAMS = ['munich', 'vienna', 'chamber', 'cellar_club', 'roxy_theatre', 'bottom_line', 'sports', 'action_game',
   'roleplaying_game', 'music_video', 'standard', 'spectacle', 'sci-fi', 'adventure', 'drama', 'mono_movie', '2ch_stereo',
@@ -25,7 +25,9 @@ var ATV_APPS = ['Netflix', 'Disney+', 'Prime Video', 'YouTube', 'Stan', 'TV', 'A
 var AMP_SOURCES = ['TIDAL', 'NET RADIO', 'Spotify', 'AirPlay', 'Bluetooth', 'USB', 'Deezer', 'Qobuz', 'Amazon Music', 'Server',
   'MusicCast Link', 'Tuner', 'Napster'];
 var SETTLE_MS = 2000;      // wait for the input to settle after a change, as the old Home Assistant automation did
-var FOREGROUND_MS = 2000;
+var FOREGROUND_POLL_MS = 15000; // safety net only: the foreground app arrives by subscription
+var GUARD_MS = 2000;
+var PUSHED_TTL_MS = 12 * 60 * 60 * 1000; // a pushed Apple TV app name is forgotten after this long without a refresh
 var SEEN_MAX = 40;
 var RULES_MAX = 40;
 var IGNORED_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.livedmost', 'com.sammysco.avoverlay',
@@ -79,15 +81,7 @@ module.exports = function createProfiles(ctx) {
   }
 
   // ---------- webOS foreground app ----------
-  function lunaJson(uri, cb) { // luna-send needs a pty on these TVs, hence script(1)
-    execFile('/usr/bin/script', ['-q', '-c', ctx.luna + ' -n 1 -f ' + uri + " '{}'", '/dev/null'], { timeout: 4000 },
-      function (err, out) {
-        if (err) return cb(null);
-        var text = String(out).replace(/\r/g, '');
-        var i = text.indexOf('{');
-        try { cb(JSON.parse(text.slice(i))); } catch (e) { cb(null); }
-      });
-  }
+  function lunaJson(uri, cb) { shared.lunaJson(ctx.luna, uri, cb); }
 
   function loadTitles(cb) {
     titlesAt = Date.now();
@@ -106,14 +100,16 @@ module.exports = function createProfiles(ctx) {
     });
   }
 
+  function foregroundOf(j) { // the plain reply names the foreground app; otherwise pick the focused card
+    if (j && j.appId) return j.appId;
+    var list = (j && j.foregroundAppInfo) || [];
+    var cards = list.filter(function (e) { return e.windowType === '_WEBOS_WINDOW_TYPE_CARD'; });
+    var e = cards.filter(function (c) { return c.windowGroupOwner === true; })[0] || cards[0];
+    return e ? e.appId : null;
+  }
+
   function readForeground(cb) {
-    lunaJson('luna://com.webos.applicationManager/getForegroundAppInfo', function (j) {
-      if (j && j.appId) return cb(j.appId); // the plain reply names the foreground app
-      var list = (j && j.foregroundAppInfo) || [];
-      var cards = list.filter(function (e) { return e.windowType === '_WEBOS_WINDOW_TYPE_CARD'; });
-      var e = cards.filter(function (c) { return c.windowGroupOwner === true; })[0] || cards[0];
-      cb(e ? e.appId : null);
-    });
+    lunaJson('luna://com.webos.applicationManager/getForegroundAppInfo', function (j) { cb(foregroundOf(j)); });
   }
 
   function friendly(id) {
@@ -126,12 +122,18 @@ module.exports = function createProfiles(ctx) {
   }
 
   // ---------- context ----------
+  function pushedName() { // the Apple TV app Home Assistant last reported, unless that report is stale
+    if (pushed && Date.now() - pushed.at > PUSHED_TTL_MS) { ctx.log('app pushed: expired (' + pushed.name + ')'); pushed = null; }
+    return pushed ? pushed.name : null;
+  }
+
   function contextKey() {
     var c = cfg();
     if (ampInput && ampInput !== c.tvInput && ctx.inputLabel) return ctx.inputLabel(ampInput); // TIDAL, NET RADIO, ...
     var base = friendly(fg.id);
     if (base && base.indexOf('HDMI') === 0) {
-      if (pushed && pushed.name && (!c.appInput || c.appInput === base)) return pushed.name;
+      var pn = pushedName();
+      if (pn && (!c.appInput || c.appInput === base)) return pn;
       var pa = ctx.getPlexApp();
       if (pa) return pa;
     }
@@ -146,7 +148,7 @@ module.exports = function createProfiles(ctx) {
     if (!base) return null;
     if (base.indexOf('HDMI') === 0) {
       var c = cfg();
-      if (pushed && pushed.name && (!c.appInput || c.appInput === base)) return 'atv';
+      if (pushedName() && (!c.appInput || c.appInput === base)) return 'atv';
       if (ctx.getPlexApp()) return 'atv';
       return 'input';
     }
@@ -242,7 +244,8 @@ module.exports = function createProfiles(ctx) {
   var guardHits = 0, guardBusy = false;
   function guardTick() {
     var c = cfg();
-    var onAtv = pushed && /^spotify$/i.test(pushed.name) && /^HDMI/.test(friendly(fg.id) || '') &&
+    var pn = pushedName();
+    var onAtv = pn && /^spotify$/i.test(pn) && /^HDMI/.test(friendly(fg.id) || '') &&
       (!c.appInput || c.appInput === friendly(fg.id));
     if (!c.enabled || !onAtv || ampInput !== 'spotify' || guardBusy) { guardHits = 0; return; }
     guardBusy = true;
@@ -261,14 +264,13 @@ module.exports = function createProfiles(ctx) {
   }
 
   // ---------- inputs from the watcher ----------
-  function check() { // called every FOREGROUND_MS
-    guardTick();
-    readForeground(function (id) {
-      var f = friendly(id);
-      if (id && f && !titles[id] && !/^(HDMI|Live)/.test(f) && Date.now() - titlesAt > 60000) loadTitles();
-      fg.id = id;
-      noteContext();
-    });
+  function setForeground(id) { // called for every foreground-app report (subscription and safety poll)
+    var prev = fg.id;
+    var f = friendly(id);
+    if (id && f && !titles[id] && !/^(HDMI|Live)/.test(f) && Date.now() - titlesAt > 60000) loadTitles();
+    fg.id = id;
+    if (id !== prev && ctx.onForeground) ctx.onForeground(id, prev);
+    noteContext();
   }
 
   // The context (what is being watched) may change from several directions; one place reacts to it.
@@ -298,8 +300,12 @@ module.exports = function createProfiles(ctx) {
 
   function onPlexApp() { noteContext(); }
 
-  var poll = setInterval(check, FOREGROUND_MS); // always on: the app name is also shown in the info bar
-  if (poll.unref) poll.unref();
+  var guard = setInterval(guardTick, GUARD_MS); // always on: cheap unless Spotify is playing on the Apple TV
+  if (guard.unref) guard.unref();
+  var fgPoll = setInterval(function () { readForeground(setForeground); }, FOREGROUND_POLL_MS);
+  if (fgPoll.unref) fgPoll.unref();
+  shared.lunaSubscribe(ctx.luna, 'luna://com.webos.applicationManager/getForegroundAppInfo', '{"subscribe":true}',
+    function (j) { setForeground(foregroundOf(j)); }, ctx.log, 'foreground');
   loadTitles();
   loadFeatures();
 
@@ -310,6 +316,7 @@ module.exports = function createProfiles(ctx) {
     currentInputName: function () { var b = friendly(fg.id); return b && inputNames[b] && inputNames[b] !== b ? inputNames[b] : null; },
     onAmpStatus: onAmpStatus,
     onPlexApp: onPlexApp,
+    foreground: function () { return fg.id; },
     applyNow: function () { run(true); },
     // everything the rule editor offers in its app/input drop-down
     choices: function () {
@@ -324,7 +331,7 @@ module.exports = function createProfiles(ctx) {
     lists: function (cb) { loadFeatures(function () { cb(lists()); }); },
     current: function () {
       var c = cfg();
-      return { key: contextKey(), kind: contextKind(), foreground: fg.id, pushed: pushed ? pushed.name : null, plexApp: ctx.getPlexApp(),
+      return { key: contextKey(), kind: contextKind(), foreground: fg.id, pushed: pushedName(), plexApp: ctx.getPlexApp(),
         enabled: c.enabled, last: last, seen: c.seen };
     },
     // validates and normalises the "sound" block posted by the setup page

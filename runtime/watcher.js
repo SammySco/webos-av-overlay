@@ -6,20 +6,21 @@
 // (from the TV's videooutput service), shown whenever any of them changes.
 
 var http = require('http');
-var https = require('https');
 var dgram = require('dgram');
-var spawn = require('child_process').spawn;
 var execFile = require('child_process').execFile;
 var fs = require('fs');
+var shared = require('./shared.js');
 
 // Settings live in SETTINGS_FILE (written by the installer and the /setup page); environment variables are fallbacks.
 var AMP_HOST = process.env.EARC_AMP_HOST || '';
 var AMP_PORT = Number(process.env.EARC_AMP_PORT) || 80;
 var EVENT_PORT = 41100;
+// The receiver also pushes UDP events, so these polls are the fallback and the signal/now-playing ones can be slow.
 var POLL_MS = 2000;
-var SIGNAL_POLL_MS = 3000;
+var SIGNAL_POLL_MS = 10000;
+var NOW_POLL_MS = 10000;
 var RESUBSCRIBE_MS = 5 * 60 * 1000;
-var ROW_KEYS = ['program', 'source', 'app', 'audio', 'plex', 'jellyfin', 'processing', 'video', 'colour'];
+var ROW_KEYS = shared.ROW_KEYS;
 // Optional Plex source details. Config file (persistent, survives reinstalls):
 //   /home/root/.earc-plex.json  {"url":"http://<server>:32400","token":"<X-Plex-Token>","player_ip":"<apple tv ip, optional>"}
 var PLEX_CONFIG = process.env.EARC_PLEX_CONFIG || '/home/root/.earc-plex.json';
@@ -32,7 +33,7 @@ var LOG = '/tmp/earc-volume-overlay.log';
 var LUNA = process.env.EARC_LUNA_SEND || '/usr/bin/luna-send';
 // In Docker deployments the watcher runs on a separate machine and the TV's overlay app needs to
 // make HTTP callbacks to the Docker host instead of 127.0.0.1.  Set this to the URL the TV can
-// reach, e.g. http://192.168.1.50:41101.  Passed as watcherBase in every luna launch invocation.
+// reach, e.g. http://192.168.1.5:41101.  Passed as watcherBase in every luna launch invocation.
 var WATCHER_URL = process.env.EARC_WATCHER_URL || '';
 
 var PROGRAMS = {
@@ -62,7 +63,7 @@ var jellyfinKey = null, jellyfinInFlight = false;
 var procKey = null;
 var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
 var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
-var CORNERS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+var CORNERS = shared.CORNERS;
 var corner = 'top-left';   // where the info bar sits (the volume popup is bottom-right)
 var infoShowMs = 5000;     // how long the info bar stays visible (ms)
 var infoDelayMs = 1000;    // delay before it appears after a change (ms)
@@ -93,14 +94,24 @@ try {
   if (Array.isArray(loaded.hiddenRows)) hiddenRows = loaded.hiddenRows.filter(function (r) { return ROW_KEYS.indexOf(r) >= 0; });
   if (typeof loaded.volFontSize === 'number' && loaded.volFontSize >= 50 && loaded.volFontSize <= 200) volFontSize = loaded.volFontSize;
   if (typeof loaded.infoFontSize === 'number' && loaded.infoFontSize >= 50 && loaded.infoFontSize <= 200) infoFontSize = loaded.infoFontSize;
-} catch (e) {}
+} catch (e) {
+  if (e.code !== 'ENOENT') { // unreadable or corrupt: keep a copy so the next save cannot destroy it
+    try { fs.copyFileSync(SETTINGS_FILE, SETTINGS_FILE + '.bad'); fs.chmodSync(SETTINGS_FILE + '.bad', 384); } catch (e2) {}
+    writeLog('settings could not be read (' + e.message + '); a copy was kept as ' + SETTINGS_FILE + '.bad');
+  }
+}
+var saveTimer = null;
+function saveSoon() { // for frequent, unimportant changes (the "seen apps" list): one write after things go quiet
+  if (saveTimer) return;
+  saveTimer = setTimeout(function () { saveTimer = null; saveSettings(); }, 3000);
+}
 function saveSettings() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
+    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
       infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined,
       volFontSize: volFontSize !== 100 ? volFontSize : undefined, infoFontSize: infoFontSize !== 100 ? infoFontSize : undefined,
-      plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined }, null, 1), { mode: 384 }); // 0600: may hold the Plex token / Jellyfin API key
-    fs.chmodSync(SETTINGS_FILE, 384);
+      plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined }, null, 1)); // 0600: may hold the Plex token / Jellyfin API key
   } catch (e) { log('settings save failed: ' + e.message); }
 }
 var infoTimer = null, signalInFlight = false, tvPinned = false; // tvPinned: info bar held on screen (reported by the app)
@@ -148,15 +159,8 @@ function changeChannel(up) {
 
 function ampGet(path, headers, cb) {
   if (!AMP_HOST) { cb(new Error('amp not configured - open http://<tv>:' + INFO_HTTP_PORT + '/setup')); return; }
-  var req = http.get({ host: AMP_HOST, port: AMP_PORT, path: '/YamahaExtendedControl/v1' + path,
-    headers: headers || {}, timeout: 1500 }, function (res) {
-    var body = '';
-    res.setEncoding('utf8');
-    res.on('data', function (c) { body += c; });
-    res.on('end', function () { var j = null; try { j = JSON.parse(body); } catch (e) {} cb(null, j); });
-  });
-  req.on('timeout', function () { req.destroy(new Error('timeout')); });
-  req.on('error', function (e) { cb(e); });
+  shared.getJson({ host: AMP_HOST, port: AMP_PORT, path: '/YamahaExtendedControl/v1' + path, headers: headers || {}, timeout: 1500, maxBytes: 65536 },
+    function (err, j) { cb(err, err ? undefined : j); });
 }
 
 // Switch the amp's front-panel volume scale via the YNCA XML API (the same endpoint the web setup UI uses).
@@ -322,53 +326,56 @@ function hideInfo(via) {
 // ---------- pinned bar closed by the Guide / system UI ----------
 // Opening the Guide makes webOS close the overlay window while the watcher still believes it is pinned. Waiting for
 // a channel change (picked in the Guide) and then re-pinning restores it without popping up over the Guide itself.
-var lostAt = 0, overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null, tickN = 0;
+// The running-app list and the foreground app arrive by luna subscription; only the channel is polled, and only while the bar is away.
+var lostAt = 0, overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null;
 var QUIET_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.notification'];
-function lunaJson(uri, cb) { // luna-send needs a pty, hence script(1)
-  execFile('/usr/bin/script', ['-q', '-c', LUNA + " -n 1 -f " + uri + " '{}'", '/dev/null'], { timeout: 4000 },
-    function (err, out) { cb(err ? '' : String(out)); });
+function scheduleRestore(why, ms) {
+  if (restoreTimer) clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow(why, true); }, ms);
 }
-function pinWatchTick() {
-  if (!tvPinned) { overlayLost = false; lastChannel = null; lastFg = null; return; }
-  if (!overlayLost && (++tickN % 2)) return; // every 2 s normally, every second once the bar has gone
-  lunaJson('luna://com.webos.applicationManager/running', function (out) {
-    if (!tvPinned || !out) return;
-    var present = out.indexOf('"' + APP_ID + '"') >= 0;
-    if (!present && !overlayLost) { overlayLost = true; lostAt = Date.now(); log('pinned bar went away (foreground ' + lastFg + '); waiting for a channel/app change'); }
-    if (present) overlayLost = false;
-    // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
-    // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
-    lunaJson('luna://com.webos.applicationManager/getForegroundAppInfo', function (f) {
-      var m = /"appId": *"([^"]*)"/.exec(f);
-      if (!m || !tvPinned) return;
-      var prevFg = lastFg;
-      lastFg = m[1];
-      // The Guide only exists on Live TV, so on an HDMI input a vanished bar is not the Guide: bring it back
-      // (something else, such as a system pop-up, closed the window).
-      if (overlayLost && m[1].indexOf('com.webos.app.hdmi') === 0 && !restoreTimer) {
-        log('bar vanished on ' + m[1] + ' with no input change; restoring it');
-        restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('bar vanished', true); }, 2500);
-      }
-      if (overlayLost && prevFg && prevFg !== m[1] && QUIET_APPS.indexOf(m[1]) < 0) {
-        log('foreground app changed to ' + m[1] + ' while the bar was away; restoring it');
-        if (restoreTimer) clearTimeout(restoreTimer);
-        restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('app change', true); }, 1200);
-      }
-    });
-    lunaJson('luna://com.webos.service.apiadapter/tv/getCurrentChannel', function (c) {
-      var m = /"channelNumber": *"([^"]*)"/.exec(c);
-      if (!m || !tvPinned) return;
-      var prev = lastChannel;
-      lastChannel = m[1];
-      if (overlayLost && prev !== null && prev !== m[1]) {
-        log('channel changed to ' + m[1] + ' while the bar was away; restoring it');
-        if (restoreTimer) clearTimeout(restoreTimer);
-        restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow('channel change (guide)', true); }, 2500);
-      }
-    });
+function evaluateLost(prevFg) {
+  if (!tvPinned || !overlayLost) return;
+  // The Guide only exists on Live TV, so on an HDMI input a vanished bar is not the Guide: bring it back
+  // (something else, such as a system pop-up, closed the window).
+  if (lastFg && lastFg.indexOf('com.webos.app.hdmi') === 0 && !restoreTimer) {
+    log('bar vanished on ' + lastFg + ' with no input change; restoring it');
+    scheduleRestore('bar vanished', 2500);
+  }
+  // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
+  // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
+  if (prevFg && lastFg && prevFg !== lastFg && QUIET_APPS.indexOf(lastFg) < 0) {
+    log('foreground app changed to ' + lastFg + ' while the bar was away; restoring it');
+    scheduleRestore('app change', 1200);
+  }
+}
+function onForegroundChange(id, prev) { lastFg = id; evaluateLost(prev); }
+function onRunning(j) {
+  if (!tvPinned) { overlayLost = false; return; }
+  if (!j) return;
+  if (JSON.stringify(j).indexOf('"' + APP_ID + '"') >= 0) { overlayLost = false; return; }
+  if (overlayLost || Date.now() - lastLaunchAt < 3000) return; // a launch in progress is not yet in the list
+  overlayLost = true; lostAt = Date.now();
+  log('pinned bar went away (foreground ' + lastFg + '); waiting for a channel/app change');
+  evaluateLost(null);
+}
+function pollChannel() {
+  if (!tvPinned || !overlayLost) { lastChannel = null; return; }
+  shared.lunaJson(LUNA, 'luna://com.webos.service.apiadapter/tv/getCurrentChannel', function (c) {
+    var n = c && c.channelNumber !== undefined ? String(c.channelNumber) : null;
+    if (n === null || !tvPinned) return;
+    var prev = lastChannel;
+    lastChannel = n;
+    if (overlayLost && prev !== null && prev !== n) {
+      log('channel changed to ' + n + ' while the bar was away; restoring it');
+      scheduleRestore('channel change (guide)', 2500);
+    }
   });
 }
-setInterval(pinWatchTick, 1000);
+setInterval(pollChannel, 1000);
+// safety net in case the running-app subscription misses a change
+setInterval(function () {
+  if (tvPinned) shared.lunaJson(LUNA, 'luna://com.webos.applicationManager/running', onRunning);
+}, 10000);
 process.on('SIGUSR1', function () { showInfoNow('signal'); });
 function esc(t) {
   return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
@@ -453,6 +460,29 @@ function infoPage(shownOnTv) {
 
 // ---------- /setup (settings form, see setup.js) ----------
 function applySettings(v) {
+  // work out the Plex / Jellyfin changes first, so a refusal leaves everything untouched
+  var newPlex, newJellyfin;
+  if (v.plexClear) newPlex = { disabled: true };
+  else if (v.plexUrl !== undefined) {
+    if (!v.plexUrl) newPlex = { disabled: true };
+    else {
+      var cur = readPlexConfig();
+      var token = v.plexToken || (cur && cur.url === v.plexUrl ? cur.token : '');
+      if (!token) return { error: 'Enter the Plex token for this server' };
+      newPlex = { url: v.plexUrl, token: token, player_ip: v.plexPlayer || undefined, verifyTls: cur && cur.verifyTls === true ? true : undefined };
+    }
+  }
+  if (v.jellyfinClear) newJellyfin = { disabled: true };
+  else if (v.jellyfinUrl !== undefined) {
+    if (!v.jellyfinUrl) newJellyfin = { disabled: true };
+    else {
+      var jcur = readJellyfinConfig();
+      var apiKey = v.jellyfinApiKey || (jcur && jcur.url === v.jellyfinUrl ? jcur.apiKey : '');
+      if (!apiKey) return { error: 'Enter the Jellyfin API key for this server' };
+      newJellyfin = { url: v.jellyfinUrl, apiKey: apiKey, deviceName: v.jellyfinDevice || undefined, verifyTls: jcur && jcur.verifyTls === true ? true : undefined };
+    }
+  }
+
   var ampChanged = false;
   if (v.ampHost !== undefined && v.ampHost !== AMP_HOST) { AMP_HOST = v.ampHost; ampChanged = true; }
   if (v.ampPort !== undefined && v.ampPort !== AMP_PORT) { AMP_PORT = v.ampPort; ampChanged = true; }
@@ -470,26 +500,8 @@ function applySettings(v) {
   if (typeof v.volFontSize === 'number' && v.volFontSize >= 50 && v.volFontSize <= 200) volFontSize = v.volFontSize;
   if (typeof v.infoFontSize === 'number' && v.infoFontSize >= 50 && v.infoFontSize <= 200) infoFontSize = v.infoFontSize;
   if (v.sound) soundSettings = v.sound;
-  if (v.plexClear) plexSettings = { disabled: true };
-  else if (v.plexUrl !== undefined) {
-    var cur = readPlexConfig();
-    if (!v.plexUrl) plexSettings = { disabled: true };
-    else {
-      var token = v.plexToken || (cur && cur.url === v.plexUrl ? cur.token : '');
-      if (!token) return { error: 'Enter the Plex token for this server' };
-      plexSettings = { url: v.plexUrl, token: token, player_ip: v.plexPlayer || undefined };
-    }
-  }
-  if (v.jellyfinClear) jellyfinSettings = { disabled: true };
-  else if (v.jellyfinUrl !== undefined) {
-    var jcur = readJellyfinConfig();
-    if (!v.jellyfinUrl) jellyfinSettings = { disabled: true };
-    else {
-      var apiKey = v.jellyfinApiKey || (jcur && jcur.url === v.jellyfinUrl ? jcur.apiKey : '');
-      if (!apiKey) return { error: 'Enter the Jellyfin API key for this server' };
-      jellyfinSettings = { url: v.jellyfinUrl, apiKey: apiKey, deviceName: v.jellyfinDevice || undefined };
-    }
-  }
+  if (newPlex) { plexSettings = newPlex; legacyPlex.at = 0; }
+  if (newJellyfin) jellyfinSettings = newJellyfin;
   saveSettings();
   log('settings saved (amp ' + (AMP_HOST || 'not set') + ':' + AMP_PORT + ', corner ' + corner + ', auto info ' + (autoInfo ? 'on' : 'off') +
     ', plex ' + (readPlexConfig() ? 'on' : 'off') + ', jellyfin ' + (readJellyfinConfig() ? 'on' : 'off') + ')');
@@ -508,9 +520,10 @@ var profiles = require('./profiles.js')({
   log: log,
   luna: LUNA,
   getSound: function () { return soundSettings; },
-  setSound: function (o) { soundSettings = o; saveSettings(); },
+  setSound: function (o) { soundSettings = o; saveSoon(); },
   getPlexApp: function () { return state.plexApp || null; },
   inputLabel: inputLabel,
+  onForeground: onForegroundChange,
   onContext: function (key, kind) { if (key && (kind === 'lg' || kind === 'atv')) scheduleInfo('app ' + key + (kind === 'lg' ? ' (LG app)' : ' (Apple TV)')); }
 });
 
@@ -601,7 +614,8 @@ http.createServer(function (req, res) {
     headers['Content-Type'] = 'text/html; charset=utf-8'; res.writeHead(200, headers); res.end(infoPage(false));
   } else if (path === '/status.rows.json') {
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
-    res.end(JSON.stringify({ title: pageTitle(snapshot()), rows: infoRows(snapshot()), pinned: tvPinned, autoInfo: autoInfo, updated: snapshot().updated }));
+    var snap = snapshot();
+    res.end(JSON.stringify({ title: pageTitle(snap), rows: infoRows(snap), pinned: tvPinned, autoInfo: autoInfo, updated: snap.updated }));
   } else if (path === '/status.json') {
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify(snapshot()));
   } else { res.writeHead(404, headers); res.end(); }
@@ -645,7 +659,11 @@ function showVolume(value, mute) {
 function handleStatus(s) {
   if (!s || s.response_code !== 0) return;
   if (profiles) profiles.onAmpStatus(s);
-  if (s.power !== 'on') { lastVolume = null; progKey = null; audioKey = null; procKey = null; return; }
+  if (s.power !== 'on') { // standby: forget the readings so nothing stale is shown, and re-baseline when it wakes
+    lastVolume = null; progKey = null; audioKey = null; procKey = null;
+    state.volume = null; state.volumeText = null; state.program = null; state.audio = null; state.processing = null; state.nowPlaying = null; nowKey = null;
+    return;
+  }
 
   var value = readVolume(s), mute = !!s.mute, current = value + ':' + mute;
   state.volume = value; state.volumeText = volumeText(s, value); state.mute = mute; state.updated = new Date();
@@ -767,26 +785,10 @@ function handleVideo(resp) {
   else if (key !== videoKey) { videoKey = key; scheduleInfo('video ' + state.video); fetchSignal(); }
 }
 
-var videoProc = null;
+var subscriptions = [];
 function startVideoWatch() {
-  var cmd = LUNA + " -i 'luna://com.webos.service.videooutput/getStatus' '{\"subscribe\":true}'";
-  videoProc = spawn('/usr/bin/script', ['-q', '-f', '-c', cmd, '/dev/null']);
-  var pending = '';
-  videoProc.stdout.on('data', function (chunk) {
-    pending += String(chunk);
-    var lines = pending.split('\n');
-    pending = lines.pop();
-    lines.forEach(function (line) {
-      line = line.replace(/\r/g, '').trim();
-      if (line.charAt(0) !== '{') return;
-      try { handleVideo(JSON.parse(line)); } catch (e) { log('video parse error: ' + e.message); }
-    });
-  });
-  videoProc.on('exit', function (code) {
-    log('video subscription ended (' + code + '), restarting in 5s');
-    videoProc = null;
-    setTimeout(startVideoWatch, 5000);
-  });
+  subscriptions.push(shared.lunaSubscribe(LUNA, 'luna://com.webos.service.videooutput/getStatus', '{"subscribe":true}', handleVideo, log, 'video'));
+  subscriptions.push(shared.lunaSubscribe(LUNA, 'luna://com.webos.applicationManager/running', '{"subscribe":true}', onRunning, log, 'running'));
 }
 
 // ---------- Plex Media Server session details (source codec / channels / bitrate) ----------
@@ -794,11 +796,16 @@ var PLEX_AUDIO = { truehd: 'TrueHD', eac3: 'DD+', ac3: 'Dolby Digital', aac: 'AA
   mp3: 'MP3', pcm: 'PCM', alac: 'ALAC', vorbis: 'Vorbis' };
 var PLEX_DTS = { ma: 'DTS-HD MA', hra: 'DTS-HD HRA', x: 'DTS:X', es: 'DTS-ES', '96_24': 'DTS 96/24' };
 
+var legacyPlex = { at: 0, val: null }; // the old standalone Plex file, re-read at most every 30 s
 function readPlexConfig() {
   if (plexSettings && plexSettings.disabled) return null;
   if (plexSettings && plexSettings.url && plexSettings.token) return plexSettings;
-  try { var c = JSON.parse(fs.readFileSync(PLEX_CONFIG, 'utf8')); return (c && c.url && c.token) ? c : null; }
-  catch (e) { return null; }
+  if (Date.now() - legacyPlex.at > 30000) {
+    legacyPlex.at = Date.now();
+    try { var c = JSON.parse(fs.readFileSync(PLEX_CONFIG, 'utf8')); legacyPlex.val = (c && c.url && c.token) ? c : null; }
+    catch (e) { legacyPlex.val = null; }
+  }
+  return legacyPlex.val;
 }
 
 function plexAudio(a) {
@@ -859,32 +866,21 @@ function fetchPlex() {
   if (!state.source || state.source.indexOf('HDMI') !== 0) { clearPlex(); return; } // only while on the Apple TV input
   var cfg = readPlexConfig();
   if (!cfg) { clearPlex(); return; }
-  var u;
-  try { u = new (require('url').URL)(cfg.url.replace(/\/+$/, '') + '/status/sessions'); } catch (e) { log('plex: bad url'); return; }
-  var mod = u.protocol === 'https:' ? https : http;
   plexInFlight = true;
-  var req = mod.get({ host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname,
-    headers: { 'Accept': 'application/json', 'X-Plex-Token': cfg.token }, timeout: 2500,
-    rejectUnauthorized: false }, function (res) {
-    var body = '';
-    res.setEncoding('utf8');
-    res.on('data', function (c) { body += c; });
-    res.on('end', function () {
-      plexInFlight = false;
-      if (res.statusCode !== 200) { log('plex: HTTP ' + res.statusCode); return; }
-      var list = [];
-      try { list = (JSON.parse(body).MediaContainer || {}).Metadata || []; } catch (e) { log('plex: parse error'); return; }
-      var md = pickSession(list, cfg);
-      if (!md) { clearPlex(); return; }
-      var sum = plexSummary(md);
-      state.plex = sum.text;
-      var product = ((md.Player || {}).product || '').slice(0, 40) || null;
-      if (product !== state.plexApp) { state.plexApp = product; if (profiles) profiles.onPlexApp(); }
-      if (sum.key !== plexKey) { plexKey = sum.key; scheduleInfo(sum.text); }
-    });
+  shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/status/sessions', headers: { 'Accept': 'application/json', 'X-Plex-Token': cfg.token },
+    timeout: 2500, verifyTls: cfg.verifyTls === true }, function (err, j, code) {
+    plexInFlight = false;
+    if (err) { log('plex: ' + err.message); return; }
+    if (code !== 200) { log('plex: HTTP ' + code); return; }
+    if (!j) { log('plex: parse error'); return; }
+    var md = pickSession((j.MediaContainer || {}).Metadata || [], cfg);
+    if (!md) { clearPlex(); return; }
+    var sum = plexSummary(md);
+    state.plex = sum.text;
+    var product = ((md.Player || {}).product || '').slice(0, 40) || null;
+    if (product !== state.plexApp) { state.plexApp = product; if (profiles) profiles.onPlexApp(); }
+    if (sum.key !== plexKey) { plexKey = sum.key; scheduleInfo(sum.text); }
   });
-  req.on('timeout', function () { req.destroy(new Error('timeout')); });
-  req.on('error', function (e) { plexInFlight = false; log('plex: ' + e.message); });
 }
 
 // ---------- Jellyfin (optional media info) ----------
@@ -948,31 +944,19 @@ function fetchJellyfin() {
   if (!state.source || state.source.indexOf('HDMI') !== 0) { clearJellyfin(); return; }
   var cfg = readJellyfinConfig();
   if (!cfg) { clearJellyfin(); return; }
-  var u;
-  try { u = new (require('url').URL)(cfg.url.replace(/\/+$/, '') + '/Sessions'); } catch (e) { log('jellyfin: bad url'); return; }
-  var mod = u.protocol === 'https:' ? https : http;
   jellyfinInFlight = true;
-  var req = mod.get({ host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname,
-    headers: { Accept: 'application/json', 'X-MediaBrowser-Token': cfg.apiKey }, timeout: 2500,
-    rejectUnauthorized: false }, function (res) {
-    var body = '';
-    res.setEncoding('utf8');
-    res.on('data', function (c) { body += c; });
-    res.on('end', function () {
-      jellyfinInFlight = false;
-      if (res.statusCode !== 200) { log('jellyfin: HTTP ' + res.statusCode); return; }
-      var list = [];
-      try { list = JSON.parse(body); } catch (e) { log('jellyfin: parse error'); return; }
-      if (!Array.isArray(list)) { clearJellyfin(); return; }
-      var session = pickJellyfinSession(list, cfg);
-      if (!session) { clearJellyfin(); return; }
-      var sum = jellyfinSummary(session);
-      state.jellyfin = sum.text;
-      if (sum.key !== jellyfinKey) { jellyfinKey = sum.key; scheduleInfo(sum.text); }
-    });
+  shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/Sessions', headers: { Accept: 'application/json', 'X-MediaBrowser-Token': cfg.apiKey },
+    timeout: 2500, verifyTls: cfg.verifyTls === true }, function (err, list, code) {
+    jellyfinInFlight = false;
+    if (err) { log('jellyfin: ' + err.message); return; }
+    if (code !== 200) { log('jellyfin: HTTP ' + code); return; }
+    if (!Array.isArray(list)) { if (list === null) log('jellyfin: parse error'); clearJellyfin(); return; }
+    var session = pickJellyfinSession(list, cfg);
+    if (!session) { clearJellyfin(); return; }
+    var sum = jellyfinSummary(session);
+    state.jellyfin = sum.text;
+    if (sum.key !== jellyfinKey) { jellyfinKey = sum.key; scheduleInfo(sum.text); }
   });
-  req.on('timeout', function () { req.destroy(new Error('timeout')); });
-  req.on('error', function (e) { jellyfinInFlight = false; log('jellyfin: ' + e.message); });
 }
 
 // ---------- amp UDP events ----------
@@ -993,9 +977,12 @@ sock.bind(EVENT_PORT, function () { log('listening for amp events on udp/' + EVE
 
 function stop() {
   try { sock.close(); } catch (e) {}
-  try { if (videoProc) { videoProc.removeAllListeners('exit'); videoProc.kill(); } } catch (e) {}
+  subscriptions.forEach(function (sub) { sub.stop(); });
   process.exit(0);
 }
+// a stray exception should not take the overlay down until the next reboot
+process.on('uncaughtException', function (e) { log('uncaught exception: ' + (e && e.stack || e)); });
+process.on('unhandledRejection', function (e) { log('unhandled rejection: ' + (e && e.stack || e)); });
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
 
@@ -1008,4 +995,4 @@ setInterval(function () { fetchStatus(false); }, POLL_MS);
 setInterval(fetchSignal, SIGNAL_POLL_MS);
 setInterval(fetchPlex, PLEX_POLL_MS);
 setInterval(fetchJellyfin, JELLYFIN_POLL_MS);
-setInterval(fetchNowPlaying, 4000); // fallback for network sources whose events are missed
+setInterval(fetchNowPlaying, NOW_POLL_MS); // fallback for network sources whose events are missed

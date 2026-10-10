@@ -117,7 +117,7 @@ asks a few questions, and starts the service:
 | Yamaha receiver IP/hostname | Checked from the TV; required for the overlay to do anything |
 | Plex server URL, token, player IP | Optional. The token prompt is hidden and the token is only sent over SSH |
 | Auto info on/off | Show the info bar by itself when something changes |
-| Info bar position | top-left, top-right or bottom-left |
+| Info bar position | top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right |
 
 Jellyfin is not asked by the installer — configure it at `/setup` after installation.
 
@@ -166,8 +166,9 @@ watching 192.168.1.50 at 42:false
 
 ## How it works
 
-A root-side Node.js watcher on the TV subscribes to the receiver's events (with a poll as a fallback), reads the
-TV's video output state, and optionally Plex or Jellyfin. It launches a transparent web app to draw the volume popup and the
+A root-side Node.js watcher on the TV subscribes to the receiver's events (with a poll as a fallback) and to the
+TV's video output, foreground app and running-app state (luna subscriptions, not polling), and optionally reads Plex or
+Jellyfin. It launches a transparent web app to draw the volume popup and the
 info bar, and serves the status and setup pages on port 41101. The app closes itself when nothing is showing,
 because an open overlay window takes the remote's key focus.
 

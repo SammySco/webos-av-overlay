@@ -203,7 +203,7 @@ if ($Interactive) {
   }
   if (-not $Corner) {
     $defCorner = if ($cur['corner']) { $cur['corner'] } else { 'top-left' }
-    $Corner = Ask 'Info bar position (top-left, top-right, bottom-left)' $defCorner
+    $Corner = Ask 'Info bar position (top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center, bottom-right)' $defCorner
   }
 }
 
