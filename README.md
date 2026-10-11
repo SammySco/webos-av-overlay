@@ -67,18 +67,19 @@ You need a **rooted LG webOS TV on webOS 4.0 or newer** (2018 models onwards) an
 offers the Extended Control API (RX-V, RX-A, RX-S, MusicCast). The full per-model lists, a two-line check for your
 receiver and notes on which LG firmware can be rooted are in **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
-**Yamaha receivers**
-
-<table width="100%">
+<table>
   <thead>
     <tr>
-      <th align="left" width="13%">Model Year</th>
-      <th align="left" width="19%">Series</th>
-      <th align="left" width="38%">Models</th>
-      <th align="left" width="30%">Status</th>
+      <th align="left">Model Year</th>
+      <th align="left">Series</th>
+      <th align="left">Models</th>
+      <th align="left">Status</th>
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <th colspan="4" align="left">Yamaha receivers</th>
+    </tr>
     <tr>
       <td>2024 onwards</td>
       <td>RX-300</td>
@@ -133,21 +134,9 @@ receiver and notes on which LG firmware can be rooted are in **[docs/COMPATIBILI
       <td>Yamaha RX-V381, RX-V383, RX-V385</td>
       <td>Not supported (no network control)</td>
     </tr>
-  </tbody>
-</table>
-
-**LG TVs**
-
-<table width="100%">
-  <thead>
     <tr>
-      <th align="left" width="13%">Model Year</th>
-      <th align="left" width="19%">Series</th>
-      <th align="left" width="38%">Models</th>
-      <th align="left" width="30%">Status</th>
+      <th colspan="4" align="left">LG TVs</th>
     </tr>
-  </thead>
-  <tbody>
     <tr>
       <td>2025</td>
       <td>OLED</td>
