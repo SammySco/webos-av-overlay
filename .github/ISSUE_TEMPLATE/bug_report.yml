@@ -1,0 +1,44 @@
+name: Bug report
+description: Something is not working as expected
+labels: [bug]
+body:
+  - type: input
+    id: tv
+    attributes:
+      label: LG TV model and webOS version
+      placeholder: "e.g. OLED55C2, webOS 22"
+    validations:
+      required: true
+  - type: input
+    id: receiver
+    attributes:
+      label: Yamaha receiver model and firmware
+      placeholder: "e.g. RX-V485"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - On the TV (default)
+        - Docker
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: AV Overlay version
+      placeholder: "e.g. 2.4.0"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: On the TV, `tail -f /tmp/earc-volume-overlay.log`. For Docker, `docker logs`. Remove tokens and keys first.
+      render: shell

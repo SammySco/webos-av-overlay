@@ -1,9 +1,22 @@
-# AV Overlay for LG webOS
+# AV Overlay for LG webOS and Yamaha Receivers
 
-On-screen volume and stream information for a rooted LG webOS TV that sends its audio to a
-**Yamaha receiver** (tested on an RX-V485 over eARC). It is a fork of
+[![Build IPK](https://github.com/SammySco/webos-av-overlay/actions/workflows/build.yml/badge.svg)](https://github.com/SammySco/webos-av-overlay/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/SammySco/webos-av-overlay)](https://github.com/SammySco/webos-av-overlay/releases/latest)
+[![Licence: MIT](https://img.shields.io/github/license/SammySco/webos-av-overlay)](LICENSE)
+![webOS homebrew](https://img.shields.io/badge/webOS-homebrew-a50034)
+![Docker](https://img.shields.io/badge/docker-supported-2496ed)
+
+**On-screen volume, audio/video format info bar and per-app sound programs for rooted LG webOS TVs
+(eARC) paired with a Yamaha MusicCast / RX-V receiver.** Optional Plex and Jellyfin stream details,
+Home Assistant automation hooks, an Android status app, and a Docker deployment option.
+Tested on an RX-V485 over eARC. It is a fork of
 [Nikolay1243/Webos-EARC-Volume-Overlay](https://github.com/Nikolay1243/Webos-EARC-Volume-Overlay),
 which showed a numeric volume; this version reads the receiver directly and adds an info bar.
+
+**Why this exists:** with an LG TV sending audio to a receiver over eARC, the receiver owns the volume
+and does the decoding, and webOS gives you little on-screen feedback about either. This overlay shows
+the receiver's volume and mute state, the sound program, the audio format actually reaching the amp
+(Dolby Atmos, DTS, PCM and so on), and the video format and HDR in use, without leaving the TV.
 
 <table>
   <tr>
@@ -45,6 +58,16 @@ which showed a numeric volume; this version reads the receiver directly and adds
   [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md).
 - Endpoints for automation: `/info`, `/status.json`, `/tv/show`, `/tv/hide`, `/app?name=...`.
 
+## Compatibility
+
+Tested on a rooted LG webOS TV with a Yamaha RX-V485 over eARC. Other Yamaha models that expose the
+Extended Control API (most MusicCast and recent RX-V / RX-A models) should work. Other receiver brands
+are not supported.
+
+Using a different TV model, webOS version or Yamaha receiver? Please open a
+[compatibility report](https://github.com/SammySco/webos-av-overlay/issues/new?template=compatibility_report.yml)
+so this section can list what is known to work.
+
 ## Requirements
 
 - An LG TV that is **rooted** with the [Homebrew Channel](https://www.webosbrew.org/) installed.
@@ -85,6 +108,10 @@ updates easier.
 **Requirements:** a Linux host on the same LAN, Docker Engine, and an SSH key that can reach the TV.
 For instant amp volume events `network_mode: host` is used — this works on Linux Docker Engine but not on
 Docker Desktop (Mac/Windows).
+
+A prebuilt image is published to the GitHub Container Registry on each tagged release:
+`ghcr.io/sammysco/webos-av-overlay`. Use it in `docker-compose.yml` by replacing `build: .` with
+`image: ghcr.io/sammysco/webos-av-overlay:latest`.
 
 See [docs/DOCKER.md](docs/DOCKER.md) for the full guide.
 

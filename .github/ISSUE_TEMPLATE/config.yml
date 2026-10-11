@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/SammySco/webos-av-overlay/discussions
+    about: Ask a question or share a setup in Discussions.

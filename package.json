@@ -2,8 +2,28 @@
   "name": "webos-earc-volume-overlay",
   "version": "2.4.0",
   "private": true,
-  "description": "An on-screen eARC volume indicator for rooted LG webOS TVs",
+  "description": "On-screen volume, audio/video format info bar and per-app sound programs for rooted LG webOS TVs (eARC) with Yamaha MusicCast/RX-V receivers",
   "license": "MIT",
+  "homepage": "https://github.com/SammySco/webos-av-overlay#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SammySco/webos-av-overlay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SammySco/webos-av-overlay/issues"
+  },
+  "keywords": [
+    "webos",
+    "webosbrew",
+    "lg-tv",
+    "earc",
+    "yamaha",
+    "musiccast",
+    "volume-overlay",
+    "home-assistant",
+    "plex",
+    "jellyfin"
+  ],
   "scripts": {
     "package": "sh scripts/package.sh",
     "release": "sh scripts/make-release.sh",
