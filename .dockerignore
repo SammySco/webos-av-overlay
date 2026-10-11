@@ -15,7 +15,8 @@ tv.env
 *.ipk
 *.tar.gz
 *.gz
-app
+app/*
+!app/appinfo.json
 settings
 scripts/install.sh
 scripts/install.ps1
