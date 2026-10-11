@@ -2,18 +2,87 @@ name: Compatibility report
 description: Tell us what works (or does not) on your TV and receiver
 labels: [compatibility]
 body:
-  - type: input
-    id: tv
+  - type: markdown
     attributes:
-      label: LG TV model and webOS version
+      value: |
+        Reports like this build the table in [docs/COMPATIBILITY.md](https://github.com/SammySco/webos-av-overlay/blob/main/docs/COMPATIBILITY.md).
+        To read your receiver's details, open `http://RECEIVER_IP/YamahaExtendedControl/v1/system/getDeviceInfo` in a browser.
+        **Do not paste the whole response**: it contains your serial number and device ID. Copy only `model_name`, `api_version` and `system_version`.
+  - type: input
+    id: tv_model
+    attributes:
+      label: LG TV model number
+      description: The full model number, for example OLED65C2PSC. It is usually on the TV's information screen or the sticker on the back.
+      placeholder: OLED65C2PSC
     validations:
       required: true
   - type: input
-    id: receiver
+    id: webos
     attributes:
-      label: Yamaha receiver model
+      label: webOS version
+      description: For example 11.2.0. It is usually shown in the TV's general information screen.
+      placeholder: 11.2.0
     validations:
       required: true
+  - type: input
+    id: receiver_model
+    attributes:
+      label: Yamaha receiver model_name
+      description: The `model_name` value from getDeviceInfo, for example RX-V485.
+      placeholder: RX-V485
+    validations:
+      required: true
+  - type: input
+    id: api_version
+    attributes:
+      label: Receiver api_version
+      description: The `api_version` value from getDeviceInfo, for example 2.17.
+      placeholder: "2.17"
+    validations:
+      required: true
+  - type: input
+    id: system_version
+    attributes:
+      label: Receiver system_version
+      description: The `system_version` value from getDeviceInfo, for example 1.91.
+      placeholder: "1.91"
+  - type: dropdown
+    id: connection
+    attributes:
+      label: TV to receiver connection
+      options:
+        - eARC
+        - ARC
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How you run the watcher
+      options:
+        - On the TV
+        - In Docker
+    validations:
+      required: true
+  - type: input
+    id: overlay_version
+    attributes:
+      label: AV Overlay version
+      description: For example 2.4.1.
+      placeholder: 2.4.1
+  - type: checkboxes
+    id: features
+    attributes:
+      label: What worked
+      description: Tick everything that worked.
+      options:
+        - label: Volume popup
+        - label: Info bar (sound program, source, audio format)
+        - label: Video format and HDR details
+        - label: Per-app sound programs
+        - label: Plex or Jellyfin stream details
+        - label: Setup and status pages
   - type: dropdown
     id: result
     attributes:
@@ -28,4 +97,4 @@ body:
     id: notes
     attributes:
       label: Notes
-      description: Which features work (volume popup, info bar, sound programs, Plex or Jellyfin details)? Anything unusual about your setup?
+      description: Anything that did not work, or anything unusual about your setup?
