@@ -1,6 +1,6 @@
 {
   "name": "webos-earc-volume-overlay",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "private": true,
   "description": "On-screen volume, audio/video format info bar and per-app sound programs for rooted LG webOS TVs (eARC) with Yamaha MusicCast/RX-V receivers",
   "license": "MIT",
