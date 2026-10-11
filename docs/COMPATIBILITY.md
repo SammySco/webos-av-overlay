@@ -15,7 +15,7 @@ The overlay needs the receiver's JSON Extended Control API (`/YamahaExtendedCont
 subscription (port 41100), with Network Standby enabled. The older XML API (`/YamahaRemoteControl/ctrl`) is used only
 to switch the receiver's front-panel volume scale between 0-97 and dB when you change the volume display on the setup
 page. If a receiver lacks it, that one sync is skipped and logged; volume, the info bar and sound programs are
-unaffected. Whether a model has eARC or only ARC is a separate question from this table.
+unaffected. Whether a model has eARC or only ARC is a separate question from the model list below.
 
 ### Check your receiver
 
@@ -27,18 +27,32 @@ curl http://RECEIVER_IP/YamahaExtendedControl/v1/main/getSignalInfo
 Both should return `"response_code":0`. `getDeviceInfo` includes `model_name`, `api_version` and `system_version`;
 please include them in a compatibility report. The RX-V485 reports `"api_version":2.17`.
 
-### Yamaha models
+## LG webOS TVs
 
-<table width="100%">
+LG compatibility depends on two things: the TV must run **webOS 4.0 or newer** (the app's minimum) and it must be
+**rooted** with the [Homebrew Channel](https://www.webosbrew.org/). Rooting depends on the exact firmware, not the
+model name, and LG has patched the known exploits on most recent firmware, so check your TV at
+[CanI.RootMy.TV](https://cani.rootmy.tv) before you start. Rooting is not covered here and can void your warranty.
+Any LG line (OLED, QNED, NanoCell, UHD) follows the same rule; the model list below shows the OLED models as examples.
+
+Model years map to webOS as follows: 2018 = webOS 4.0, 2019 = 4.5, 2020 = 5, 2021 = 6, 2022 = 22 (7), 2023 = 23 (8),
+2024 = 24 (9), 2025 = 25 (10). Newer firmware can raise a TV above its launch version; the confirmed C2 now runs 11.2.0.
+
+## Model list
+
+<table>
   <thead>
     <tr>
-      <th align="left" width="13%">Model Year</th>
-      <th align="left" width="19%">Series</th>
-      <th align="left" width="38%">Models</th>
-      <th align="left" width="30%">Status</th>
+      <th align="left">Model Year</th>
+      <th align="left">Series</th>
+      <th align="left">Models</th>
+      <th align="left">Status</th>
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <th colspan="4" align="left">Yamaha receivers</th>
+    </tr>
     <tr>
       <td>2024 onwards</td>
       <td>RX-300</td>
@@ -150,7 +164,7 @@ please include them in a compatibility report. The RX-V485 reports `"api_version
     <tr>
       <td>2015-2019</td>
       <td>Aventage RX-A</td>
-      <td>Yamaha RX-A750 to RX-A3080 (only the end models are named in the source list)</td>
+      <td>Yamaha RX-A750 to RX-A3080</td>
       <td>Expected to work</td>
     </tr>
     <tr>
@@ -183,33 +197,9 @@ please include them in a compatibility report. The RX-V485 reports `"api_version
       <td>Yamaha RX-V385</td>
       <td>Not supported (no network control)</td>
     </tr>
-  </tbody>
-</table>
-
-"Expected" means the receiver is reported to offer those APIs; it has not been tested with this overlay. Also searched
-as RXV485, RX V485 and so on: the model names above are written in full so they can be found.
-
-## LG webOS TVs
-
-LG compatibility depends on two things: the TV must run **webOS 4.0 or newer** (the app's minimum) and it must be
-**rooted** with the [Homebrew Channel](https://www.webosbrew.org/). Rooting depends on the exact firmware, not the
-model name, and LG has patched the known exploits on most recent firmware, so check your TV at
-[CanI.RootMy.TV](https://cani.rootmy.tv) before you start. Rooting is not covered here and can void your warranty.
-Any LG line (OLED, QNED, NanoCell, UHD) follows the same rule; the table lists the OLED models as examples.
-
-Model years map to webOS as follows: 2018 = webOS 4.0, 2019 = 4.5, 2020 = 5, 2021 = 6, 2022 = 22 (7), 2023 = 23 (8),
-2024 = 24 (9), 2025 = 25 (10). Newer firmware can raise a TV above its launch version; the confirmed C2 now runs 11.2.0.
-
-<table width="100%">
-  <thead>
     <tr>
-      <th align="left" width="13%">Model Year</th>
-      <th align="left" width="19%">Series</th>
-      <th align="left" width="38%">Models</th>
-      <th align="left" width="30%">Status</th>
+      <th colspan="4" align="left">LG TVs</th>
     </tr>
-  </thead>
-  <tbody>
     <tr>
       <td>2025</td>
       <td>OLED B-series</td>
@@ -435,8 +425,12 @@ Model years map to webOS as follows: 2018 = webOS 4.0, 2019 = 4.5, 2020 = 5, 202
   </tbody>
 </table>
 
-The Status column summarises the webosbrew, RootMyTV, DejaVuln and faultmanager project notes as of August 2025 and
-will age; the CanI.RootMy.TV result for your own TV is the one that counts.
+"Expected" means the receiver or TV is reported to offer the right APIs or rootability; it has not been tested with
+this overlay. The Aventage row gives a range; individual models inside it are not listed. Receiver names are written
+in full (also searched as RXV485, RX V485 and so on) so they can be found.
+
+The LG Status column summarises the webosbrew, RootMyTV, DejaVuln and faultmanager project notes as of August 2025
+and will age; the CanI.RootMy.TV result for your own TV is the one that counts.
 
 ## Reporting what works
 
