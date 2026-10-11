@@ -333,6 +333,12 @@ TV_HOST=root@TV_IP sh scripts/uninstall.sh          # keeps your settings
 TV_HOST=root@TV_IP sh scripts/uninstall.sh --purge  # also deletes them
 ```
 
+You can also remove the app from the Homebrew Channel. webOS has no uninstall hook, so the watcher notices that its
+app folder has gone (it checks every 30 seconds and acts after about 90 seconds, so upgrades are not mistaken for a
+removal), then removes its boot hook, pid files and state folder and exits. Your settings files
+(`/home/root/.earc-overlay.json`, and `.earc-plex.json` if you use Plex, which holds a token) are kept so a reinstall
+picks up where you left off; delete them with `scripts/uninstall.sh --purge`. This cleanup does not run in Docker.
+
 ## Troubleshooting
 
 On the TV, `tail -f /tmp/earc-volume-overlay.log`. A healthy start looks like:

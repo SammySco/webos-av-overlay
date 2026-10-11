@@ -98,6 +98,7 @@ module.exports = function createSetup(ctx) {
       '.rule{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px;margin:10px 0;background:#17171b;border:1px solid #2a2a30;border-radius:12px}' +
       '.rule .appwrap,.rule button{grid-column:1/-1}.rule select{min-width:0;width:100%}nav button,nav a.btn{flex:1 1 140px;text-align:center}}' +
       '@media (min-width:1500px){body{font-size:26px}main{max-width:1200px}input[type=text],input[type=password],input[type=number],select,button,a.btn{font-size:26px;padding:16px 20px}}' +
+      'footer{margin-top:1.2em;text-align:center;color:#6b6b73;font-size:.7em}' +
       '</style></head><body><main><h1>AV overlay setup</h1><p>Settings are saved on the TV and apply straight away.</p>' +
       '<details><summary>' + ico('chev') + ico('amp') + 'Yamaha receiver</summary><div class="row"><div><label for="ampHost">IP address or hostname</label>' +
       '<input id="ampHost" type="text" value="' + esc(s.ampHost) + '" placeholder="e.g. 192.168.1.50" autocomplete="off"></div>' +
@@ -151,7 +152,8 @@ module.exports = function createSetup(ctx) {
       '<p id="soundNow" style="margin-top:14px"></p>' +
       '</details>' +
       '<nav><button id="save" class="primary">Save</button><button id="testAmp">Test receiver</button><button id="testPlex">Test Plex</button><button id="testJellyfin">Test Jellyfin</button>' +
-      '<a class="btn" href="/status">Status page</a></nav><div id="msg"></div></main>' +
+      '<a class="btn" href="/status">Status page</a></nav><div id="msg"></div>' +
+      '<footer>AV Overlay' + (shared.APP_VERSION ? ' v' + esc(shared.APP_VERSION) : '') + '</footer></main>' +
       '<script type="application/json" id="data">' + data + '</script>' +
       '<script>(function(){function $(i){return document.getElementById(i)}var D=JSON.parse($("data").textContent),msg=$("msg");' +
       'function say(t,ok){msg.textContent=t;msg.className=ok?"ok":"bad"}' +

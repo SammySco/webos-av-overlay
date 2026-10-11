@@ -8,6 +8,8 @@ WORKDIR /app
 
 # Only the runtime is needed — watcher.js uses only built-in Node modules
 COPY runtime/ ./runtime/
+# appinfo.json is only read for the version shown on the status and setup pages
+COPY app/appinfo.json ./appinfo.json
 COPY scripts/docker/ ./scripts/docker/
 RUN chmod +x /app/scripts/docker/luna-send-tv.sh /app/scripts/docker/entrypoint.sh
 
