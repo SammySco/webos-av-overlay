@@ -68,6 +68,32 @@ Using a different TV model, webOS version or Yamaha receiver? Please open a
 [compatibility report](https://github.com/SammySco/webos-av-overlay/issues/new?template=compatibility_report.yml)
 so this section can list what is known to work.
 
+## FAQ
+
+**My Yamaha receiver's volume doesn't show on my LG TV over eARC. Can this help?**
+It can show the volume another way. Some owners report that the receiver's own on-screen volume
+(the "Short Message" setting) doesn't appear on LG TVs, particularly with Dolby Vision or high-bandwidth
+video. This project does not change that. It reads the volume and mute state from the receiver over the
+network and draws its own popup on the TV, including half-steps. It is worth checking the receiver's
+Short Message setting first.
+
+**Can I see whether Dolby Atmos, DTS or PCM is reaching my receiver?**
+Yes. The info bar shows the audio format, sample rate and bit depth the receiver reports, plus the sound
+program and decoder. Boxes that decode audio themselves, such as an Apple TV, send PCM, so the bar shows
+PCM. Neither the receiver nor the TV reports a channel count; the optional Plex integration can show the
+codec and channels of the stream itself.
+
+**Does it work with other TVs or other receiver brands?**
+No. It needs a rooted LG webOS TV and a Yamaha receiver with the Extended Control API. Other brands
+are not supported. Other Yamaha models should work, and compatibility reports are welcome.
+
+**Do I have to root my TV?**
+Yes. The watcher runs on the TV as root and needs SSH access. A Docker deployment can run the watcher on a
+home server instead, but the apps still have to be installed on a rooted TV.
+
+**Can it change the receiver's sound program per app?**
+Yes. Set a default and a rule per input, LG app or Apple TV app, on the `/setup` page.
+
 ## Requirements
 
 - An LG TV that is **rooted** with the [Homebrew Channel](https://www.webosbrew.org/) installed.
