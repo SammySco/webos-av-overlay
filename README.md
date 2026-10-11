@@ -69,31 +69,141 @@ receiver and notes on which LG firmware can be rooted are in **[docs/COMPATIBILI
 
 **Yamaha receivers**
 
-| Model Year | Series | Models | Status |
-| --- | --- | --- | --- |
-| 2024 onwards | RX-300 | Yamaha RX-300A | Expected to work (no volume-scale sync) |
-| 2021 onwards | Aventage "A" | Yamaha RX-A2A, RX-A4A, RX-A6A, RX-A8A | Expected to work (no volume-scale sync) |
-| 2020 onwards | RX-V "A" | Yamaha RX-V4A, RX-V6A | Expected to work (no volume-scale sync) |
-| 2018-2019 | RX-V "85" | Yamaha RX-V485 (**confirmed**), RX-V585, RX-V685, RX-V785 | Expected to work |
-| 2017 | RX-V "83" | Yamaha RX-V483, RX-V583, RX-V683 | Expected to work |
-| 2016 | RX-V "81" | Yamaha RX-V481, RX-V581, RX-V681, RX-V781 | Expected to work |
-| 2015-2019 | Aventage RX-A | Yamaha RX-A750 to RX-A3080 | Expected to work |
-| 2015-2018 | Slimline RX-S | Yamaha RX-S601, RX-S602 | Expected to work |
-| 2016-2019 | RX-V "80" entry | Yamaha RX-V381, RX-V383, RX-V385 | Not supported (no network control) |
+<table width="100%">
+  <thead>
+    <tr>
+      <th align="left" width="13%">Model Year</th>
+      <th align="left" width="19%">Series</th>
+      <th align="left" width="38%">Models</th>
+      <th align="left" width="30%">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2024 onwards</td>
+      <td>RX-300</td>
+      <td>Yamaha RX-300A</td>
+      <td>Expected to work (no volume-scale sync)</td>
+    </tr>
+    <tr>
+      <td>2021 onwards</td>
+      <td>Aventage "A"</td>
+      <td>Yamaha RX-A2A, RX-A4A, RX-A6A, RX-A8A</td>
+      <td>Expected to work (no volume-scale sync)</td>
+    </tr>
+    <tr>
+      <td>2020 onwards</td>
+      <td>RX-V "A"</td>
+      <td>Yamaha RX-V4A, RX-V6A</td>
+      <td>Expected to work (no volume-scale sync)</td>
+    </tr>
+    <tr>
+      <td>2018-2019</td>
+      <td>RX-V "85"</td>
+      <td>Yamaha RX-V485 (<b>confirmed</b>), RX-V585, RX-V685, RX-V785</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2017</td>
+      <td>RX-V "83"</td>
+      <td>Yamaha RX-V483, RX-V583, RX-V683</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2016</td>
+      <td>RX-V "81"</td>
+      <td>Yamaha RX-V481, RX-V581, RX-V681, RX-V781</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2015-2019</td>
+      <td>Aventage RX-A</td>
+      <td>Yamaha RX-A750 to RX-A3080</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2015-2018</td>
+      <td>Slimline RX-S</td>
+      <td>Yamaha RX-S601, RX-S602</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2016-2019</td>
+      <td>RX-V "80" entry</td>
+      <td>Yamaha RX-V381, RX-V383, RX-V385</td>
+      <td>Not supported (no network control)</td>
+    </tr>
+  </tbody>
+</table>
 
 **LG TVs**
 
-| Model Year | Series | Models | Status |
-| --- | --- | --- | --- |
-| 2025 | OLED | LG B5, C5, G5 | Unknown, check first |
-| 2024 | OLED | LG B4, C4, G4, M4, Z4 | Unlikely (webOS 9 reported patched) |
-| 2023 | OLED | LG B3, C3, G3, Z3 | Unknown, check first |
-| 2022 | OLED | LG A2, B2, C2 (OLED65C2PSC), G2, Z2 | Depends on firmware (C2 **confirmed**) |
-| 2021 | OLED | LG A1, B1, C1, G1, Z1 | Depends on firmware |
-| 2020 | OLED | LG BX, CX, GX, WX, ZX | Depends on firmware |
-| 2019 | OLED | LG B9, C9, E9, W9 | Expected to work once rooted |
-| 2018 | OLED | LG B8, C8, E8, G8, W8 | Expected to work once rooted |
-| 2017 and earlier | All lines | All LG webOS TVs | Not supported (below webOS 4.0) |
+<table width="100%">
+  <thead>
+    <tr>
+      <th align="left" width="13%">Model Year</th>
+      <th align="left" width="19%">Series</th>
+      <th align="left" width="38%">Models</th>
+      <th align="left" width="30%">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2025</td>
+      <td>OLED</td>
+      <td>LG B5, C5, G5</td>
+      <td>Unknown, check first</td>
+    </tr>
+    <tr>
+      <td>2024</td>
+      <td>OLED</td>
+      <td>LG B4, C4, G4, M4, Z4</td>
+      <td>Unlikely (webOS 9 reported patched)</td>
+    </tr>
+    <tr>
+      <td>2023</td>
+      <td>OLED</td>
+      <td>LG B3, C3, G3, Z3</td>
+      <td>Unknown, check first</td>
+    </tr>
+    <tr>
+      <td>2022</td>
+      <td>OLED</td>
+      <td>LG A2, B2, C2 (OLED65C2PSC), G2, Z2</td>
+      <td>Depends on firmware (C2 <b>confirmed</b>)</td>
+    </tr>
+    <tr>
+      <td>2021</td>
+      <td>OLED</td>
+      <td>LG A1, B1, C1, G1, Z1</td>
+      <td>Depends on firmware</td>
+    </tr>
+    <tr>
+      <td>2020</td>
+      <td>OLED</td>
+      <td>LG BX, CX, GX, WX, ZX</td>
+      <td>Depends on firmware</td>
+    </tr>
+    <tr>
+      <td>2019</td>
+      <td>OLED</td>
+      <td>LG B9, C9, E9, W9</td>
+      <td>Expected to work once rooted</td>
+    </tr>
+    <tr>
+      <td>2018</td>
+      <td>OLED</td>
+      <td>LG B8, C8, E8, G8, W8</td>
+      <td>Expected to work once rooted</td>
+    </tr>
+    <tr>
+      <td>2017 and earlier</td>
+      <td>All lines</td>
+      <td>All LG webOS TVs</td>
+      <td>Not supported (below webOS 4.0)</td>
+    </tr>
+  </tbody>
+</table>
 
 "Expected" means reported to offer the right APIs or rootability; it has not been tested with this overlay. Rooting
 depends on the exact firmware: check your TV at [CanI.RootMy.TV](https://cani.rootmy.tv) first.
