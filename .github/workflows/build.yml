@@ -33,9 +33,44 @@ jobs:
         with:
           generate_release_notes: true
           fail_on_unmatched_files: true
+          # tags such as v2.4.4-rc.1 are pre-releases: never "latest", so the webosbrew manifest URL keeps the stable release
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/*.tar.gz
             build/*.ipk
             release/com.sammysco.avoverlay.manifest.json
     permissions:
       contents: write
+
+  android:
+    # Builds the status app. On version tags the APK is attached to the release; other runs keep it as an artifact.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # the GitHub Ubuntu runners already carry the Android SDK, so no SDK setup step is needed
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - run: gradle assembleDebug --no-daemon --stacktrace
+        working-directory: android
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk AV-Overlay-status.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: av-overlay-status-apk
+          path: AV-Overlay-status.apk
+      - name: Attach the APK to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          # repeat the pre-release flag, otherwise this step would reset it
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: AV-Overlay-status.apk

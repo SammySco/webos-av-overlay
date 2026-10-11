@@ -14,3 +14,6 @@ android/app/build/
 android/local.properties
 android/.idea/
 dist-android/app-debug.apk
+
+# Personal Claude Code notes (real addresses and host names); never commit
+CLAUDE.local.md
