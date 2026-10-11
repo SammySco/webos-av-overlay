@@ -383,7 +383,7 @@ function esc(t) {
 
 function snapshot() {
   var up = ampReachable();
-  return { tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
+  return { version: shared.APP_VERSION, tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
     program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null,
     plex: state.plex, jellyfin: state.jellyfin, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
@@ -424,6 +424,7 @@ function infoPage(shownOnTv) {
     'th,td{text-align:left;padding:.45em .7em;border-bottom:1px solid #2a2a30;vertical-align:top;line-height:1.25}tr:last-child th,tr:last-child td{border-bottom:0}' +
     'th{width:32%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}' +
     'nav{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}' +
+    'footer{flex:0 0 auto;text-align:center;color:#6b6b73;font-size:clamp(10px,1.5vh,12px)}' +
     '.tg{display:flex;align-items:center;justify-content:space-between;gap:8px;font:inherit;font-size:clamp(11px,1.8vh,15px);color:#eee;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;padding:.55em .7em;cursor:pointer;text-align:left;line-height:1.15}' +
     '.sw{flex:0 0 auto;position:relative;width:2.6em;height:1.5em;border-radius:1em;background:#3a3a42;transition:background .15s}' +
     '.sw:after{content:"";position:absolute;top:.17em;left:.17em;width:1.16em;height:1.16em;border-radius:50%;background:#fff;transition:left .15s}' +
@@ -431,7 +432,7 @@ function infoPage(shownOnTv) {
     'nav a{grid-column:span 1;font:inherit;font-size:clamp(11px,1.8vh,15px);color:#ddd;text-decoration:none;background:#2a2a31;border:1px solid #3a3a42;border-radius:12px;padding:.55em .7em;text-align:center}' +
     '.links{display:contents}' +
     // short landscape screens (a phone on its side): the table on the left, the toggles stacked on the right
-    '@media (orientation:landscape) and (max-height:520px){body{padding:6px 12px}main{max-width:none;display:grid;grid-template-columns:1fr 200px;grid-template-rows:auto auto 1fr;column-gap:12px;row-gap:2px}' +
+    '@media (orientation:landscape) and (max-height:520px){body{padding:6px 12px}main{max-width:none;display:grid;grid-template-columns:1fr 200px;grid-template-rows:auto auto 1fr auto;column-gap:12px;row-gap:2px}footer{grid-column:1/-1;grid-row:4}' +
     'h1{grid-column:1/-1;font-size:clamp(14px,5vh,18px)}p#meta{grid-column:1/-1}.box{grid-column:1;grid-row:3}' +
     'table{font-size:clamp(10px,4vh,14px)}th,td{padding:.28em .6em}' +
     'nav{grid-column:2;grid-row:3;grid-template-columns:1fr;align-content:start;gap:6px}.tg,nav a{font-size:clamp(11px,4.2vh,14px);padding:.45em .6em}}' +
@@ -442,7 +443,8 @@ function infoPage(shownOnTv) {
     '<nav><button class="tg' + (d.pinned ? ' on' : '') + '" id="tv" type="button">Show on TV<span class="sw"></span></button>' +
     '<button class="tg on" id="live" type="button">Live refresh<span class="sw"></span></button>' +
     '<button class="tg' + (autoInfo ? ' on' : '') + '" id="auto" type="button">Auto info<span class="sw"></span></button>' +
-    '<a href="/setup">Setup</a><a href="/status.json">JSON</a></nav></main>' +
+    '<a href="/setup">Setup</a><a href="/status.json">JSON</a></nav>' +
+    '<footer>AV Overlay' + (shared.APP_VERSION ? ' v' + esc(shared.APP_VERSION) : '') + '</footer></main>' +
     '<script>(function(){var pinned=' + (d.pinned ? 'true' : 'false') + ',live=true,timer=null,auto=' + (autoInfo ? 'true' : 'false') + ',' +
     'au=document.getElementById("auto"),tv=document.getElementById("tv"),lv=document.getElementById("live"),rows=document.getElementById("rows"),meta=document.getElementById("meta");' +
     'function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]})}' +
@@ -987,6 +989,8 @@ process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
 
 log('service starting (yamaha ' + (AMP_HOST || 'not configured') + ', with signal info)');
+// the app can be removed from the Homebrew Channel without any uninstall hook; clean up after ourselves then (TV only)
+require('./orphan.js').start({ runtimeDir: __dirname, appId: APP_ID, log: log, onOrphaned: stop });
 fetchStatus(true);
 fetchSignal();
 startVideoWatch();

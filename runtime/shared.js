@@ -9,6 +9,20 @@ var URL = require('url').URL;
 var spawn = require('child_process').spawn;
 var execFile = require('child_process').execFile;
 
+// The app version, from appinfo.json next to runtime/ (the TV app folder and the Docker image) or package.json
+// (a source checkout); '' when neither can be read.
+function readAppVersion() {
+  var files = ['appinfo.json', 'package.json'];
+  for (var i = 0; i < files.length; i++) {
+    try {
+      var v = JSON.parse(fs.readFileSync(require('path').join(__dirname, '..', files[i]), 'utf8')).version;
+      if (typeof v === 'string' && /^[0-9][0-9A-Za-z.+-]{0,30}$/.test(v)) return v;
+    } catch (e) { /* try the next file */ }
+  }
+  return '';
+}
+var APP_VERSION = readAppVersion();
+
 var ROW_KEYS = ['program', 'source', 'app', 'audio', 'plex', 'jellyfin', 'processing', 'video', 'colour'];
 var CORNERS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 var FONT_SIZES = [75, 100, 125, 150];
@@ -97,5 +111,5 @@ function writeFileAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
-module.exports = { ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };

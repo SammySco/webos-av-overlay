@@ -100,7 +100,7 @@ Optional on the TV: *long-press an unused number key → assign it to the AV Ove
 the app that way pins the bar; opening it again hides it.
 
 Updates later: `git pull`, then redeploy with `TV_HOST=root@TV_IP sh scripts/deploy.sh` (your settings are kept).
-Removal: `sh scripts/uninstall.sh` (add `--purge` to delete your settings too).
+Removal: `sh scripts/uninstall.sh` (add `--purge` to delete your settings too). Removing the app from the Homebrew Channel also works: the watcher cleans up its boot hook and pid files about 90 seconds later and keeps your settings.
 
 ## 7. Plex (optional)
 
