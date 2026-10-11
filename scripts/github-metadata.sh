@@ -17,8 +17,10 @@ gh repo edit "$REPO" \
   --enable-issues
 
 # GitHub allows at most 20 topics. 'homebrew' is dropped: it mostly attracts the macOS package manager.
+# 'nodejs' is swapped for 'webos-homebrew', which has a more relevant audience.
 gh repo edit "$REPO" --remove-topic homebrew || true
-for t in webosbrew earc yamaha-receiver yamaha-extended-control plex jellyfin apple-tv dolby-vision hdr docker nodejs; do
+gh repo edit "$REPO" --remove-topic nodejs || true
+for t in webosbrew earc yamaha-receiver yamaha-extended-control plex jellyfin apple-tv dolby-vision hdr docker webos-homebrew; do
   gh repo edit "$REPO" --add-topic "$t"
 done
 

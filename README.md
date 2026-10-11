@@ -60,13 +60,183 @@ the receiver's volume and mute state, the sound program, the audio format actual
 
 ## Compatibility
 
-Tested on a rooted LG webOS TV with a Yamaha RX-V485 over eARC. Other Yamaha models that expose the
-Extended Control API (most MusicCast and recent RX-V / RX-A models) should work. Other receiver brands
-are not supported.
+**Confirmed:** an LG OLED65C2PSC (C2, 2022 OLED) on webOS 11.2.0 with a Yamaha RX-V485 over eARC (Extended Control
+API 2.17). Everything else below is **expected**, not tested. Other receiver brands are not supported.
+
+You need a **rooted LG webOS TV on webOS 4.0 or newer** (2018 models onwards) and a **Yamaha network receiver** that
+offers the Extended Control API (RX-V, RX-A, RX-S, MusicCast). The full per-model lists, a two-line check for your
+receiver and notes on which LG firmware can be rooted are in **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
+
+**Yamaha receivers**
+
+<table width="100%">
+  <thead>
+    <tr>
+      <th align="left" width="13%">Model Year</th>
+      <th align="left" width="19%">Series</th>
+      <th align="left" width="38%">Models</th>
+      <th align="left" width="30%">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2024 onwards</td>
+      <td>RX-300</td>
+      <td>Yamaha RX-300A</td>
+      <td>Expected to work (no volume-scale sync)</td>
+    </tr>
+    <tr>
+      <td>2021 onwards</td>
+      <td>Aventage "A"</td>
+      <td>Yamaha RX-A2A, RX-A4A, RX-A6A, RX-A8A</td>
+      <td>Expected to work (no volume-scale sync)</td>
+    </tr>
+    <tr>
+      <td>2020 onwards</td>
+      <td>RX-V "A"</td>
+      <td>Yamaha RX-V4A, RX-V6A</td>
+      <td>Expected to work (no volume-scale sync)</td>
+    </tr>
+    <tr>
+      <td>2018-2019</td>
+      <td>RX-V "85"</td>
+      <td>Yamaha RX-V485 (<b>confirmed</b>), RX-V585, RX-V685, RX-V785</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2017</td>
+      <td>RX-V "83"</td>
+      <td>Yamaha RX-V483, RX-V583, RX-V683</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2016</td>
+      <td>RX-V "81"</td>
+      <td>Yamaha RX-V481, RX-V581, RX-V681, RX-V781</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2015-2019</td>
+      <td>Aventage RX-A</td>
+      <td>Yamaha RX-A750 to RX-A3080</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2015-2018</td>
+      <td>Slimline RX-S</td>
+      <td>Yamaha RX-S601, RX-S602</td>
+      <td>Expected to work</td>
+    </tr>
+    <tr>
+      <td>2016-2019</td>
+      <td>RX-V "80" entry</td>
+      <td>Yamaha RX-V381, RX-V383, RX-V385</td>
+      <td>Not supported (no network control)</td>
+    </tr>
+  </tbody>
+</table>
+
+**LG TVs**
+
+<table width="100%">
+  <thead>
+    <tr>
+      <th align="left" width="13%">Model Year</th>
+      <th align="left" width="19%">Series</th>
+      <th align="left" width="38%">Models</th>
+      <th align="left" width="30%">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2025</td>
+      <td>OLED</td>
+      <td>LG B5, C5, G5</td>
+      <td>Unknown, check first</td>
+    </tr>
+    <tr>
+      <td>2024</td>
+      <td>OLED</td>
+      <td>LG B4, C4, G4, M4, Z4</td>
+      <td>Unlikely (webOS 9 reported patched)</td>
+    </tr>
+    <tr>
+      <td>2023</td>
+      <td>OLED</td>
+      <td>LG B3, C3, G3, Z3</td>
+      <td>Unknown, check first</td>
+    </tr>
+    <tr>
+      <td>2022</td>
+      <td>OLED</td>
+      <td>LG A2, B2, C2 (OLED65C2PSC), G2, Z2</td>
+      <td>Depends on firmware (C2 <b>confirmed</b>)</td>
+    </tr>
+    <tr>
+      <td>2021</td>
+      <td>OLED</td>
+      <td>LG A1, B1, C1, G1, Z1</td>
+      <td>Depends on firmware</td>
+    </tr>
+    <tr>
+      <td>2020</td>
+      <td>OLED</td>
+      <td>LG BX, CX, GX, WX, ZX</td>
+      <td>Depends on firmware</td>
+    </tr>
+    <tr>
+      <td>2019</td>
+      <td>OLED</td>
+      <td>LG B9, C9, E9, W9</td>
+      <td>Expected to work once rooted</td>
+    </tr>
+    <tr>
+      <td>2018</td>
+      <td>OLED</td>
+      <td>LG B8, C8, E8, G8, W8</td>
+      <td>Expected to work once rooted</td>
+    </tr>
+    <tr>
+      <td>2017 and earlier</td>
+      <td>All lines</td>
+      <td>All LG webOS TVs</td>
+      <td>Not supported (below webOS 4.0)</td>
+    </tr>
+  </tbody>
+</table>
+
+"Expected" means reported to offer the right APIs or rootability; it has not been tested with this overlay. Rooting
+depends on the exact firmware: check your TV at [CanI.RootMy.TV](https://cani.rootmy.tv) first.
 
 Using a different TV model, webOS version or Yamaha receiver? Please open a
 [compatibility report](https://github.com/SammySco/webos-av-overlay/issues/new?template=compatibility_report.yml)
-so this section can list what is known to work.
+so the table can list what is known to work.
+
+## FAQ
+
+**My Yamaha receiver's volume doesn't show on my LG TV over eARC. Can this help?**
+It can show the volume another way. Some owners report that the receiver's own on-screen volume
+(the "Short Message" setting) doesn't appear on LG TVs, particularly with Dolby Vision or high-bandwidth
+video. This project does not change that. It reads the volume and mute state from the receiver over the
+network and draws its own popup on the TV, including half-steps. It is worth checking the receiver's
+Short Message setting first.
+
+**Can I see whether Dolby Atmos, DTS or PCM is reaching my receiver?**
+Yes. The info bar shows the audio format, sample rate and bit depth the receiver reports, plus the sound
+program and decoder. Boxes that decode audio themselves, such as an Apple TV, send PCM, so the bar shows
+PCM. Neither the receiver nor the TV reports a channel count; the optional Plex integration can show the
+codec and channels of the stream itself.
+
+**Does it work with other TVs or other receiver brands?**
+No. It needs a rooted LG webOS TV and a Yamaha receiver with the Extended Control API. Other brands
+are not supported. Other Yamaha network receivers are expected to work (see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)), and compatibility reports are welcome.
+
+**Do I have to root my TV?**
+Yes. The watcher runs on the TV as root and needs SSH access. A Docker deployment can run the watcher on a
+home server instead, but the apps still have to be installed on a rooted TV.
+
+**Can it change the receiver's sound program per app?**
+Yes. Set a default and a rule per input, LG app or Apple TV app, on the `/setup` page.
 
 ## Requirements
 
