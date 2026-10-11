@@ -5,6 +5,16 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+  # Build-only check (nothing is pushed) when the image inputs change, so a broken Dockerfile or .dockerignore is
+  # caught in the pull request instead of on a release tag.
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - runtime/**
+      - scripts/docker/**
+      - app/appinfo.json
+      - .github/workflows/docker.yml
 
 env:
   IMAGE: ghcr.io/sammysco/webos-av-overlay
@@ -23,6 +33,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -41,6 +52,6 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
