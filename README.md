@@ -60,35 +60,38 @@ the receiver's volume and mute state, the sound program, the audio format actual
 
 ## Compatibility
 
-Tested on a rooted LG webOS TV with a Yamaha RX-V485 over eARC (the receiver reports Extended Control
-API 2.17, system version 1.91). That is the only combination confirmed so far. The table below is a
-compiled reference for other Yamaha network receivers, **not** a list of tested models. Other receiver brands
-are not supported.
+**Confirmed:** an LG OLED65C2PSC (C2, 2022 OLED) on webOS 11.2.0 with a Yamaha RX-V485 over eARC (Extended Control
+API 2.17). Everything else below is **expected**, not tested. Other receiver brands are not supported.
 
-The overlay needs the receiver's JSON Extended Control API (`/YamahaExtendedControl/v1`) and its UDP event
-subscription (port 41100). The older XML API (`/YamahaRemoteControl/ctrl`) is used only to switch the
-receiver's front-panel volume scale between 0–97 and dB when you change the volume display on the setup page.
-If a receiver lacks it, that one sync is skipped and logged; volume, the info bar and sound programs are
-unaffected.
+You need a **rooted LG webOS TV on webOS 4.0 or newer** (2018 models onwards) and a **Yamaha network receiver** that
+offers the Extended Control API (RX-V, RX-A, RX-S, MusicCast). The full per-model lists, a two-line check for your
+receiver and notes on which LG firmware can be rooted are in **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
-| Series | Era | JSON API and UDP events | XML API (volume-scale sync only) | Expected status |
-| --- | --- | --- | --- | --- |
-| RX-V "85" (RX-V485, V585, V685, V785) | 2018–2019 | Yes | Yes | **RX-V485 confirmed**; the rest expected to work |
-| RX-V "83" (RX-V483, V583, V683) | 2017 | Yes | Yes | Expected to work |
-| RX-V "81" (RX-V481, V581, V681, V781) | 2016 | Yes | Yes | Expected to work |
-| Aventage RX-A750 to RX-A3080 | 2015–2019 | Yes | Yes | Expected to work |
-| Slimline RX-S601, RX-S602 | 2015–2018 | Yes | Yes | Expected to work |
-| RX-V "A" (RX-V4A, RX-V6A) | 2020 onwards | Yes | No | Expected to work, without the volume-scale sync |
-| Aventage RX-A2A, A4A, A6A, A8A | 2021 onwards | Yes | No | Expected to work, without the volume-scale sync |
-| RX-300 series (RX-300A) | 2024 onwards | Yes | No | Expected to work, without the volume-scale sync |
-| RX-V "80" entry (RX-V381, V383, V385) | 2016–2019 | No | No | Not supported (no network control) |
+| Yamaha series | Models | Era | Expected status |
+| --- | --- | --- | --- |
+| RX-V "85" | RX-V485 (confirmed), RX-V585, RX-V685, RX-V785 | 2018-2019 | Expected to work |
+| RX-V "83" | RX-V483, RX-V583, RX-V683 | 2017 | Expected to work |
+| RX-V "81" | RX-V481, RX-V581, RX-V681, RX-V781 | 2016 | Expected to work |
+| Aventage RX-A | RX-A750 to RX-A3080 | 2015-2019 | Expected to work |
+| Slimline RX-S | RX-S601, RX-S602 | 2015-2018 | Expected to work |
+| RX-V "A", Aventage "A", RX-300 | RX-V4A, RX-V6A, RX-A2A, RX-A4A, RX-A6A, RX-A8A, RX-300A | 2020 onwards | Expected to work, without the front-panel volume-scale sync |
+| RX-V "80" entry | RX-V381, RX-V383, RX-V385 | 2016-2019 | Not supported (no network control) |
 
-"Expected" means the receiver is reported to offer those APIs; it has not been tested with this overlay.
-Whether a model has eARC or only ARC is a separate question from this table.
+| LG model year | OLED series | Status |
+| --- | --- | --- |
+| 2022 | A2, B2, C2, G2, Z2 | **C2 confirmed**; others depend on firmware |
+| 2020-2021 | BX, CX, GX, WX, ZX, A1, B1, C1, G1, Z1 | Depends on firmware |
+| 2018-2019 | B8, C8, E8, G8, W8, B9, C9, E9, W9 | Expected to work once rooted |
+| 2023, 2025 | B3, C3, G3, Z3, B5, C5, G5 | Unknown, check first |
+| 2024 | B4, C4, G4, M4, Z4 | Unlikely: webOS 9 is reported patched |
+| 2017 and earlier | all | Not supported (below webOS 4.0) |
+
+"Expected" means reported to offer the right APIs or rootability; it has not been tested with this overlay. Rooting
+depends on the exact firmware: check your TV at [CanI.RootMy.TV](https://cani.rootmy.tv) first.
 
 Using a different TV model, webOS version or Yamaha receiver? Please open a
 [compatibility report](https://github.com/SammySco/webos-av-overlay/issues/new?template=compatibility_report.yml)
-so this section can list what is known to work.
+so the table can list what is known to work.
 
 ## FAQ
 
@@ -107,7 +110,7 @@ codec and channels of the stream itself.
 
 **Does it work with other TVs or other receiver brands?**
 No. It needs a rooted LG webOS TV and a Yamaha receiver with the Extended Control API. Other brands
-are not supported. Other Yamaha network receivers are expected to work (see the Compatibility table), and compatibility reports are welcome.
+are not supported. Other Yamaha network receivers are expected to work (see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)), and compatibility reports are welcome.
 
 **Do I have to root my TV?**
 Yes. The watcher runs on the TV as root and needs SSH access. A Docker deployment can run the watcher on a
