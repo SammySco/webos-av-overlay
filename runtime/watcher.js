@@ -798,6 +798,7 @@ function handleVideo(resp) {
   state.colour = colour.join(' · ') || null;
 
   var app = v.appId || '';
+  state.appId = app;
   var m = app.match(/hdmi(\d)/);
   var prevSource = state.source;
   state.source = m ? 'HDMI ' + m[1] : (/livetv|tvsource|dtv/i.test(app + v.connectedSource) ? 'Live TV' : (v.connectedSource || null));
@@ -953,36 +954,33 @@ function jellyfinSummary(session) {
   return { text: 'Jellyfin: ' + bits.join(' · '), key: [(item.Id || ''), (audio && audio.Index), decision].join('|') };
 }
 
-function pickJellyfinSession(list, cfg) {
-  var active = list.filter(function (s) { return !!s.NowPlayingItem; });
-  if (cfg.deviceName) {
-    var dn = cfg.deviceName.toLowerCase();
-    return active.filter(function (s) {
-      return (s.DeviceName || '').toLowerCase().indexOf(dn) >= 0 ||
-             (s.Client || '').toLowerCase().indexOf(dn) >= 0;
-    })[0] || null;
-  }
-  return active[0] || null;
-}
+function onTvJellyfinApp() { return shared.isJellyfinTvApp(state.appId); }
+var pickJellyfinSession = shared.pickJellyfinSession;
 
 function clearJellyfin() { state.jellyfin = null; jellyfinKey = null; }
 
 function fetchJellyfin() {
   if (jellyfinInFlight) return;
-  if (!state.source || state.source.indexOf('HDMI') !== 0) { clearJellyfin(); return; }
+  var onTv = onTvJellyfinApp();
+  if (!onTv && (!state.source || state.source.indexOf('HDMI') !== 0)) { clearJellyfin(); return; }
   var cfg = readJellyfinConfig();
   if (!cfg) { clearJellyfin(); return; }
   jellyfinInFlight = true;
   shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/Sessions', headers: shared.extend({ Accept: 'application/json' }, shared.jellyfinAuth(cfg.apiKey)),
     timeout: 2500, verifyTls: cfg.verifyTls === true }, function (err, list, code) {
     jellyfinInFlight = false;
-    if (err) { log('jellyfin: ' + err.message); return; }
-    if (code !== 200) { log('jellyfin: HTTP ' + code); return; }
-    if (!Array.isArray(list)) { if (list === null) log('jellyfin: parse error'); clearJellyfin(); return; }
-    var session = pickJellyfinSession(list, cfg);
-    if (!session) { clearJellyfin(); return; }
+    if (err) { log('jellyfin poll error: ' + err.message); return; }
+    if (code !== 200) { log('jellyfin poll error: HTTP ' + code + (code === 401 ? ' (API key rejected)' : '')); return; }
+    if (!Array.isArray(list)) { log('jellyfin poll error: unexpected answer (not a session list)'); clearJellyfin(); return; }
+    var session = pickJellyfinSession(list, cfg, onTv);
+    if (!session) {
+      var playing = list.filter(function (s) { return s && s.NowPlayingItem; }).map(function (s) { return (s.Client || '?') + '/' + (s.DeviceName || '?'); });
+      log('jellyfin: no matching session (' + (onTv ? 'app ' + state.appId : state.source) + (cfg.deviceName ? ', device filter "' + cfg.deviceName + '"' : '') + '; playing: ' + (playing.join(', ') || 'none') + ')');
+      clearJellyfin(); return;
+    }
     var sum = jellyfinSummary(session);
     state.jellyfin = sum.text;
+    log('jellyfin: ' + (session.Client || '?') + '/' + (session.DeviceName || '?') + ' ' + sum.key.split('|')[2]);
     if (sum.key !== jellyfinKey) { jellyfinKey = sum.key; scheduleInfo(sum.text); }
   });
 }

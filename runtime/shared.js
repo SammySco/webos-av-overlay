@@ -135,6 +135,27 @@ function jellyfinAuth(key) {
   return { Authorization: 'MediaBrowser Client="AV Overlay", Device="webOS TV", DeviceId="earc-volume-overlay", Version="1", Token="' + String(key || '').replace(/["\\\r\n]/g, '') + '"' };
 }
 
+// Jellyfin clients that run on the TV itself (the source is then not an HDMI input)
+var JELLYFIN_TV_APPS = /^(org\.moonfin\.webos|org\.jellyfin\.webos)$|moonfin|jellyfin/i;
+function isJellyfinTvApp(appId) { return !!appId && JELLYFIN_TV_APPS.test(appId); }
+
+function pickJellyfinSession(list, cfg, onTv) {
+  var active = list.filter(function (s) { return s && !!s.NowPlayingItem; });
+  if (cfg.deviceName) {
+    var dn = cfg.deviceName.toLowerCase();
+    return active.filter(function (s) {
+      return (s.DeviceName || '').toLowerCase().indexOf(dn) >= 0 ||
+             (s.Client || '').toLowerCase().indexOf(dn) >= 0;
+    })[0] || null;
+  }
+  if (onTv) {
+    // prefer the session of the TV's own client (Moonfin / Jellyfin for webOS) over other devices
+    var mine = active.filter(function (s) { return /moonfin|webos|lg/i.test((s.Client || '') + ' ' + (s.DeviceName || '')); })[0];
+    if (mine) return mine;
+  }
+  return active[0] || null;
+}
+
 module.exports = {
-  extend: extend, bufferFrom: bufferFrom,  jellyfinAuth: jellyfinAuth,  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+  isJellyfinTvApp: isJellyfinTvApp, pickJellyfinSession: pickJellyfinSession,  extend: extend, bufferFrom: bufferFrom,  jellyfinAuth: jellyfinAuth,  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };

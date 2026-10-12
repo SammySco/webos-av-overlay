@@ -130,3 +130,16 @@ test('runtime code avoids ES2015+ APIs missing on old node', () => {
     assert.doesNotMatch(src, /Object\.assign\(|=>|\b(let|const) |copyFileSync|recursive: true|\.includes\(|startsWith|padStart/, f);
   }
 });
+test('Moonfin on the TV: polled and its session picked', () => {
+  const shared = require('../runtime/shared.js');
+  assert.ok(shared.isJellyfinTvApp('org.moonfin.webos'));
+  assert.ok(shared.isJellyfinTvApp('org.jellyfin.webos'));
+  assert.ok(!shared.isJellyfinTvApp('netflix'));
+  const list = [{ Client: 'Jellyfin Web', DeviceName: 'Firefox', NowPlayingItem: { Id: 'a' } },
+    { Client: 'Moonfin', DeviceName: 'LG Smart TV', NowPlayingItem: { Id: 'b' } }, { Client: 'Moonfin', DeviceName: 'x' }];
+  assert.strictEqual(shared.pickJellyfinSession(list, {}, true).NowPlayingItem.Id, 'b');
+  assert.strictEqual(shared.pickJellyfinSession(list, {}, false).NowPlayingItem.Id, 'a');
+  assert.strictEqual(shared.pickJellyfinSession(list, { deviceName: 'firefox' }, true).NowPlayingItem.Id, 'a');
+  const w = require('fs').readFileSync(require('path').join(__dirname, '../runtime/watcher.js'), 'utf8');
+  assert.match(w, /if \(!onTv && \(!state\.source/);
+});
