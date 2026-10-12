@@ -48,9 +48,15 @@ the receiver's volume and mute state, the sound program, the audio format actual
 <sub>Per-app sound programs on the setup page: a default, then one rule per input, LG app or Apple TV app, with tick boxes to show or hide each group.</sub>
 
 - **Volume popup** (bottom-right) whenever the receiver's volume or mute changes, including half steps.
-- **Info bar** with the sound program, source, audio format, Plex or Jellyfin stream details (optional),
-  amp processing, video format/HDR and colour. It appears when something changes (switchable), on
-  demand, or pinned on screen.
+- **Info bar** with the sound program, volume, source, audio format, Plex or Jellyfin stream details (optional),
+  amp processing, video format/HDR and colour. Every line starts with its name ("Video: ..."). It appears when
+  something changes (switchable), on demand, or pinned on screen. A volume change only shows the volume popup; the
+  bar's Volume line is updated in place while the bar is up.
+- **Audio (TV)** (optional, off by default): what the TV itself sees on its input, with or without a receiver. On an
+  HDMI input it shows the codec, channel count and sample rate (for example `PCM · 8 ch · 48 kHz`); on Live TV and
+  LG apps it shows the codec. See [Using it without a Yamaha receiver](#using-it-without-a-yamaha-receiver).
+- **Choose and order the rows.** On the status page each row has an on/off switch and a drag handle: switch a row
+  off to hide it from the TV bar, drag it to move it. The setup page has the same list of rows.
 - **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info.
 - **Setup page** at `http://<tv>:41101/setup`, also opened by the **AV Overlay Settings** icon on the TV home screen.
 - **Sound program per app**: pick the receiver's sound program for Live TV, each HDMI input, webOS apps (Netflix,
@@ -219,8 +225,15 @@ Apple TV sends 5.1 as 8), and on Live TV and LG apps it shows only the codec. Th
 codec and channels of the stream itself.
 
 **Does it work with other TVs or other receiver brands?**
-No. It needs a rooted LG webOS TV and a Yamaha receiver with the Extended Control API. Other brands
-are not supported. Other Yamaha network receivers are expected to work (see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)), and compatibility reports are welcome.
+It needs a rooted LG webOS TV. The volume popup, the receiver's audio and processing lines and the per-app sound
+programs need a Yamaha receiver with the Extended Control API; other brands are not supported for those. Other
+Yamaha network receivers are expected to work (see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)), and compatibility
+reports are welcome. The TV-side lines of the info bar do not depend on the receiver at all: see the next question.
+
+**Can I use it without a Yamaha receiver?**
+Partly. Leave the receiver address empty and the info bar shows what the TV, Plex and Jellyfin know: Source, App,
+Audio (TV), Plex or Jellyfin, Video and Colour. There is no volume popup, sound program or receiver audio line.
+Details, and how to set it up, are in [Using it without a Yamaha receiver](#using-it-without-a-yamaha-receiver).
 
 **Do I have to root my TV?**
 Yes. The watcher runs on the TV as root and needs SSH access. A Docker deployment can run the watcher on a
@@ -235,7 +248,8 @@ Yes. Set a default and a rule per input, LG app or Apple TV app, on the `/setup`
   Rooting is not covered here and can void your warranty. Firmware updates can remove root.
 - **SSH access to the TV as root**, ideally with a key.
 - A **Yamaha receiver with the Extended Control API** (most MusicCast and recent RX-V models), on the same LAN.
-  Other brands are not supported.
+  Other brands are not supported, but a receiver is optional if you only want the TV-side info bar (see
+  [Using it without a Yamaha receiver](#using-it-without-a-yamaha-receiver)).
 - Optional: a **Plex** server and its token, or a **Jellyfin** server and an API key, for stream details.
 
 ## Deployment options
@@ -302,7 +316,7 @@ asks a few questions, and starts the service:
 
 | Question | Notes |
 |---|---|
-| Yamaha receiver IP/hostname | Checked from the TV; required for the overlay to do anything |
+| Yamaha receiver IP/hostname | Checked from the TV; needed for the volume popup, receiver lines and sound programs. Without one, install with `EARC_NONINTERACTIVE=1` (see below) |
 | Plex server URL, token, player IP | Optional. The token prompt is hidden and the token is only sent over SSH |
 | Auto info on/off | Show the info bar by itself when something changes |
 | Info bar position | top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right |
@@ -318,6 +332,54 @@ The setup and status pages have no password and are meant for your home network 
 ## Change settings later
 
 Open **AV Overlay Settings** on the TV home screen, or browse to `http://<tv>:41101/setup`. Changes apply immediately.
+
+## Choose and order the info bar rows
+
+The status page (`http://<tv>:41101/status`) lists the current value of every row. The switch beside a row's name
+turns that row on or off for the bar on the TV, and the handle (≡) on the right lets you drag it up or down; the
+order you choose is the order on the TV. Rows with no value right now (Plex when nothing is playing, for example) are
+not listed on the status page; the **Rows shown on the info bar** list at `/setup` has every row and the same
+switches. The choices are saved on the TV (`hiddenRows` and `rowOrder` in `/home/root/.earc-overlay.json`). Rows: Sound program, Volume, Source, App, Audio (amp),
+Audio (TV), Plex, Jellyfin, Processing, Video, Colour.
+
+## Using it without a Yamaha receiver
+
+The receiver is only needed for the volume popup, the sound program, the **Audio (amp)** and **Processing** lines and
+the per-app sound-program rules. Everything the TV itself can tell you works with any receiver, or none:
+
+| Row | Shown without a receiver |
+|---|---|
+| Source | Yes (the TV's input name, or "Live TV", or "LG TV apps" while an app on the TV is playing) |
+| App | Yes (the LG app, or the Apple TV app if you use the Home Assistant automation) |
+| **Audio (TV)** | Yes, once you switch it on (below) |
+| Plex or Jellyfin | Yes, if configured |
+| Video, Colour | Yes |
+| Sound program, Volume, Audio (amp), Processing | No (these come from the receiver) |
+
+**To set it up**
+1. Install without a receiver address: `EARC_NONINTERACTIVE=1 TV_HOST=root@<tv-ip> sh scripts/install.sh` (on
+   Windows, `scripts\install.ps1 -TvHost root@<tv-ip> -NonInteractive`). The interactive installer insists on a receiver, so skip its questions. If you
+   already installed with a receiver, clear the **Yamaha receiver** address at `/setup` and save.
+2. Open `http://<tv>:41101/setup`, tick **Show "Audio (TV)"** under Display, and save. It is off by default.
+3. Press **Show on TV** on the status page. With no receiver address set the bar has no "Receiver not responding"
+   title; it simply shows the TV's rows.
+
+**What Audio (TV) shows**
+- On an **HDMI input**: the codec, channel count and sample rate of the incoming signal, read from the same data as the
+  TV's hidden "HDMI status" screen, for example `PCM · 2 ch · 44.1 kHz`. Boxes that decode audio themselves, such as an
+  Apple TV, send PCM. The channel count is the HDMI link's, not the film's: an Apple TV sends 5.1 as 8 channels, so 5.1 and 7.1 look
+  the same, while stereo shows as 2.
+- On **Live TV and LG apps** (Netflix and others running on the TV): only the codec the TV decodes, for example
+  `Dolby Digital Plus`. The TV does not report channels there.
+- It does not need the receiver to be on, or to exist.
+
+**Limits**
+- Tested on an LG C2 (webOS 11.2) with a Yamaha receiver: the Audio (TV) readings above, on an Apple TV over HDMI, on
+  Live TV and in native Netflix. The receiver-free layout of the bar is tested in code only; it has not yet been run
+  on a TV with no receiver at all. Reports are welcome.
+- Other LG models and webOS versions may name these TV services differently; if Audio (TV) stays empty, check the log
+  (`/tmp/earc-volume-overlay.log`) and open an issue with your TV model and webOS version.
+- There is still no receiver-side information: without a receiver you cannot see what reaches it after the TV.
 
 ## Android companion app
 
@@ -350,7 +412,8 @@ service starting (yamaha 192.168.1.50, with signal info)
 watching 192.168.1.50 at 42:false
 ```
 
-- *"amp not configured"*: enter the receiver address at `/setup`.
+- *"amp not configured"*: enter the receiver address at `/setup`, or ignore it if you are using the
+  [TV-only info bar](#using-it-without-a-yamaha-receiver) on purpose.
 - *"amp unreachable"*: check the address, that the receiver is on, and that "Network Standby" is enabled on it.
   While the receiver is not answering, the bar and the `/status` and `/info` pages say **"Receiver not responding"** with
   when it last answered, and the receiver's own numbers (volume, sound program, audio) are withheld instead of showing

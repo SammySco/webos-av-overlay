@@ -286,7 +286,12 @@ function launchInfo(pin) {
   var plex = state.plex ? state.plex.replace(/^Plex: /, '') : null, jelly = state.jellyfin ? state.jellyfin.replace(/^Jellyfin: /, '') : null;
   // fixed lines first, then the rest in the order chosen on /status; the title is only used for "Receiver not responding"
   var head, by;
-  if (!up) { head = [lastSeenText()]; by = { source: lab('source', sourceLabel()), app: lab('app', al), tvaudio: lab('tvaudio', tva), video: lab('video', state.video), colour: lab('colour', state.colour) }; }
+  var tvOnly = !AMP_HOST; // no receiver set (for example a non-Yamaha setup): show what the TV, Plex and Jellyfin know, without receiver messages
+  if (!up) {
+    head = tvOnly ? [] : [lastSeenText()];
+    by = { source: lab('source', sourceLabel()), app: lab('app', al), tvaudio: lab('tvaudio', tva), plex: tvOnly ? lab('plex', plex) : null, jellyfin: tvOnly ? lab('jellyfin', jelly) : null,
+      video: lab('video', state.video), colour: lab('colour', state.colour) };
+  }
   else if (state.ampLocal) {
     head = [inputLabel(state.ampInput) ? 'Receiver input: ' + inputLabel(state.ampInput) : null, state.nowPlaying ? 'Now playing: ' + state.nowPlaying : null];
     by = { program: lab('program', state.program), volume: lab('volume', vol), audio: lab('audio', state.audio), processing: lab('processing', state.processing) };
@@ -296,7 +301,7 @@ function launchInfo(pin) {
       processing: lab('processing', state.processing), video: lab('video', state.video), colour: lab('colour', state.colour) };
   }
   var segs = head.concat(orderedKeys().map(function (k) { return by[k]; })).filter(function (x) { return !!x; });
-  var title = up ? '' : 'Receiver not responding';
+  var title = up || tvOnly ? '' : 'Receiver not responding';
   var volIdx = by.volume ? segs.indexOf(by.volume) : -1; // lets the app keep this line current when the volume changes while the bar is up
   var params = { info: { title: title, segs: segs, showMs: infoShowMs, layout: infoLayout, volIdx: volIdx, volLabel: shared.ROW_LABELS.volume }, corner: corner, volFontSize: volFontSize, infoFontSize: infoFontSize };
   log('info bar: ' + [title].concat(segs).filter(function (x) { return !!x; }).join(' | '));
@@ -402,7 +407,7 @@ function esc(t) {
 
 function snapshot() {
   var up = ampReachable();
-  return { version: shared.APP_VERSION, tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
+  return { version: shared.APP_VERSION, tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, receiverSet: !!AMP_HOST, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
     program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null, tvAudio: tvAudio ? state.tvAudio : null,
     plex: state.plex, jellyfin: state.jellyfin, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
@@ -414,7 +419,10 @@ function infoRows(d) {
   function R(key, v) { return [shared.ROW_LABELS[key], v, key, hiddenRows.indexOf(key) < 0]; }
   var volume = d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume));
   var rows;
-  if (d.reachable === false) { // withhold the receiver's numbers; show what the TV knows plus why they are missing
+  if (d.reachable === false && d.receiverSet === false) { // no receiver configured: only what the TV, Plex and Jellyfin know
+    rows = [R('source', d.sourceLabel || d.source), R('app', d.appLabel), R('tvaudio', d.tvAudio), R('plex', d.plex ? d.plex.replace(/^Plex: /, '') : null),
+      R('jellyfin', d.jellyfin ? d.jellyfin.replace(/^Jellyfin: /, '') : null), R('video', d.video), R('colour', d.colour)];
+  } else if (d.reachable === false) { // withhold the receiver's numbers; show what the TV knows plus why they are missing
     rows = [['Receiver', 'Not responding'], ['Last contact', d.receiverNote], R('source', d.sourceLabel || d.source), R('app', d.appLabel), R('tvaudio', d.tvAudio), R('video', d.video), R('colour', d.colour)];
   } else if (d.ampLocal) { // the receiver is playing its own source: the TV's video and app details would be misleading
     rows = [R('program', d.program), R('volume', volume), ['Receiver input', inputLabel(d.ampInput)], ['Now playing', d.nowPlaying], R('audio', d.audio), R('processing', d.processing)];

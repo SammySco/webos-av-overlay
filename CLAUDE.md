@@ -31,6 +31,10 @@ for release candidates, tagging and the checks to run after a tag.
   a drag handle on the `/status` page (`GET /tv/row?k=<key>&v=0|1`, `GET /tv/order?o=<keys>`, stored as `hiddenRows` and
   `rowOrder`; `/setup` has the same checklist); the order drives the bar as well. Sound program and Volume are rows like
   the others. A volume change only shows the volume popup, but while the bar is up its Volume line is updated in place.
+- TV-only mode: with no receiver address (`!AMP_HOST`) the bar and `/status` show only the TV-side rows (Source, App,
+  Audio (TV), Plex, Jellyfin, Video, Colour), with no "Receiver not responding" title. A receiver that is set but not
+  answering behaves as before. Install without one using `EARC_NONINTERACTIVE=1`, or clear it at `/setup`. Tested in a
+  vm sandbox only, not yet on a TV without a receiver.
 - Optional "Audio (TV)" row (`tvAudio` setting, off by default): the TV's own view of its input. On HDMI it reads
   `luna://com.webos.service.extinputs.hdmi/getHDMIDiagnosticsInfo` (needs the `pipelineId` from
   `luna://com.webos.service.audio/tv/getAudioInputProperty`; the bus name without `.hdmi` hangs) and shows codec,
