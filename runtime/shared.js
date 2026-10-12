@@ -118,6 +118,11 @@ function writeFileAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
+// Jellyfin 10.11+ ignores the legacy X-Emby/X-MediaBrowser token headers: use the Authorization scheme.
+function jellyfinAuth(key) {
+  return { Authorization: 'MediaBrowser Client="AV Overlay", Device="webOS TV", DeviceId="earc-volume-overlay", Version="1", Token="' + String(key || '').replace(/["\\\r\n]/g, '') + '"' };
+}
+
 module.exports = {
-  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+  jellyfinAuth: jellyfinAuth,  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };

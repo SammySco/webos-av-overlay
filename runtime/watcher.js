@@ -973,7 +973,7 @@ function fetchJellyfin() {
   var cfg = readJellyfinConfig();
   if (!cfg) { clearJellyfin(); return; }
   jellyfinInFlight = true;
-  shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/Sessions', headers: { Accept: 'application/json', 'X-MediaBrowser-Token': cfg.apiKey },
+  shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/Sessions', headers: Object.assign({ Accept: 'application/json' }, shared.jellyfinAuth(cfg.apiKey)),
     timeout: 2500, verifyTls: cfg.verifyTls === true }, function (err, list, code) {
     jellyfinInFlight = false;
     if (err) { log('jellyfin: ' + err.message); return; }

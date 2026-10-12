@@ -252,7 +252,7 @@ module.exports = function createSetup(ctx) {
     secret = secret || (saved && saved.url === url ? (saved.token || saved.apiKey) : '');
     if (!secret) return cb(new Error('Enter the ' + (name === 'Plex' ? 'Plex token' : 'Jellyfin API key')));
     var headers = { Accept: 'application/json' };
-    headers[header] = secret;
+    if (typeof header === 'function') Object.assign(headers, header(secret)); else headers[header] = secret;
     shared.getJson({ url: url.replace(/\/+$/, '') + path, headers: headers, timeout: 3000, verifyTls: !!(saved && saved.url === url && saved.verifyTls === true) }, function (err, j, code) {
       if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from the ' + name + ' server' : err.message));
       if (code === 401) return cb(new Error(name + ' rejected the ' + (name === 'Plex' ? 'token' : 'API key')));
@@ -269,7 +269,7 @@ module.exports = function createSetup(ctx) {
   }
 
   function testJellyfin(url, apiKey, cb) {
-    testMediaServer('Jellyfin', 'http://192.168.1.10:8096', url, apiKey, ctx.getJellyfinSecret(), '/Sessions', 'X-MediaBrowser-Token',
+    testMediaServer('Jellyfin', 'http://192.168.1.10:8096', url, apiKey, ctx.getJellyfinSecret(), '/Sessions', shared.jellyfinAuth,
       function (j) { return j.filter(function (x) { return !!x.NowPlayingItem; }).length; }, cb);
   }
 

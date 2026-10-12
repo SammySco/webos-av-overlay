@@ -72,3 +72,23 @@ test('Plex/Jellyfin URL validation works without WHATWG URL', async () => {
   }
   url.URL = savedU; global.URL = savedG;
 });
+
+test('Jellyfin requests use Authorization: MediaBrowser Token=..., no legacy headers', async () => {
+  const http = require('http');
+  let seen;
+  const srv = http.createServer((q, r) => { seen = q.headers; const ok = /^MediaBrowser .*Token="k3y"/.test(q.headers.authorization || '');
+    r.writeHead(ok ? 200 : 401, { 'Content-Type': 'application/json' }); r.end(ok ? '[{"NowPlayingItem":{}},{}]' : '{}'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + srv.address().port;
+  for (const k of Object.keys(require.cache)) if (/runtime[\\/](setup|shared)\.js$/.test(k)) delete require.cache[k];
+  const h = require('../runtime/setup.js')({ profiles: {}, getJellyfinSecret: () => null });
+  const req = new (require('stream').PassThrough)();
+  Object.assign(req, { method: 'POST', url: '/setup/test', headers: { host: 'x:41101', 'content-type': 'application/json' }, socket: {} });
+  let body = '';
+  const done = new Promise(r => h(req, { writeHead() {}, end(b) { body = String(b); r(); } }, '/setup/test'));
+  req.end(JSON.stringify({ kind: 'jellyfin', url: base, apiKey: 'k3y' }));
+  await done; srv.close();
+  assert.deepStrictEqual(JSON.parse(body), { ok: true, sessions: 1 });
+  assert.ok(!seen['x-emby-token'] && !seen['x-mediabrowser-token']);
+  assert.match(require('fs').readFileSync(require('path').join(__dirname, '../runtime/watcher.js'), 'utf8'), /shared\.jellyfinAuth\(cfg\.apiKey\)/);
+});
