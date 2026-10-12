@@ -85,10 +85,12 @@ Git or Node, and asks the same questions. From a terminal:
 `powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -TvHost root@TV_IP` (add `-SshKey C:\path\to\key` if your key is not the default).
 
 The installer builds two packages, installs them (the overlay and the **AV Overlay** settings icon), and asks:
-- **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there. (The interactive installer
-  needs one. To run without a receiver, see "Without a receiver" below.)
+- **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there. Press **Enter to skip** if you
+  have no Yamaha receiver (see "Without a receiver" below); type `none` to remove a saved one.
 - **Plex** (optional): server URL, token (typing is hidden) and the player's IP. Press `n` to skip.
 - **Auto info**: whether the info bar appears by itself when something changes.
+- **Audio (TV)**: whether to add a line with the audio the TV itself sees on its input. It suggests **on** when you
+  skipped the receiver, otherwise **off**.
 - **Info bar position**: top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right.
 
 Then it starts the service. Check it:
@@ -104,9 +106,10 @@ and a drag handle (moves it). The same switches are in the **Rows shown on the i
 TV itself sees on its input: codec, channels and sample rate on an HDMI input (an Apple TV sends 5.1 as 8 channels, so
 the count tells stereo from surround, not 5.1 from 7.1), and only the codec on Live TV and LG apps. It is off by default.
 
-**Without a receiver.** For a TV-only info bar (no volume popup or sound programs), run the installer non-interactively
-with no receiver address: `EARC_NONINTERACTIVE=1 TV_HOST=root@TV_IP sh scripts/install.sh` (or clear the receiver
-address at `/setup`). Then tick Audio (TV) as above and use **Show on TV**. The bar shows Source, App, Audio (TV),
+**Without a receiver.** For a TV-only info bar (no volume popup or sound programs), press Enter at the installer's
+receiver question. To script it, leave `EARC_AMP_HOST` unset and set `EARC_NONINTERACTIVE=1` (Windows: `-NonInteractive`);
+`EARC_AMP_HOST=none` removes a receiver that was saved earlier, and `EARC_TV_AUDIO=on` switches Audio (TV) on. You can
+also clear the receiver address at `/setup`. Then use **Show on TV**. The bar shows Source, App, Audio (TV),
 Plex or Jellyfin, Video and Colour. See the README section "Using it without a Yamaha receiver" for the limits.
 
 Optional on the TV: *long-press an unused number key → assign it to the AV Overlay app* (LG's Quick Access). Opening

@@ -316,9 +316,10 @@ asks a few questions, and starts the service:
 
 | Question | Notes |
 |---|---|
-| Yamaha receiver IP/hostname | Checked from the TV; needed for the volume popup, receiver lines and sound programs. Without one, install with `EARC_NONINTERACTIVE=1` (see below) |
+| Yamaha receiver IP/hostname | Checked from the TV; needed for the volume popup, receiver lines and sound programs. **Press Enter to skip it** (type `none` to remove a saved one) for the TV-only info bar |
 | Plex server URL, token, player IP | Optional. The token prompt is hidden and the token is only sent over SSH |
 | Auto info on/off | Show the info bar by itself when something changes |
+| Audio (TV) on/off | Show the "Audio (TV)" line, the audio the TV itself sees on its input. Defaults to on when you skip the receiver, otherwise off |
 | Info bar position | top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right |
 
 Jellyfin is not asked by the installer — configure it at `/setup` after installation.
@@ -357,10 +358,13 @@ the per-app sound-program rules. Everything the TV itself can tell you works wit
 | Sound program, Volume, Audio (amp), Processing | No (these come from the receiver) |
 
 **To set it up**
-1. Install without a receiver address: `EARC_NONINTERACTIVE=1 TV_HOST=root@<tv-ip> sh scripts/install.sh` (on
-   Windows, `scripts\install.ps1 -TvHost root@<tv-ip> -NonInteractive`). The interactive installer insists on a receiver, so skip its questions. If you
-   already installed with a receiver, clear the **Yamaha receiver** address at `/setup` and save.
-2. Open `http://<tv>:41101/setup`, tick **Show "Audio (TV)"** under Display, and save. It is off by default.
+1. Run the installer and **press Enter at the receiver question** to skip it (`TV_HOST=root@<tv-ip> sh scripts/install.sh`,
+   or `scripts\install.ps1` on Windows). To script it, set `EARC_AMP_HOST` to nothing and `EARC_NONINTERACTIVE=1`
+   (Windows: `-NonInteractive`). If you already installed with a receiver, type `none` at that question (or set
+   `EARC_AMP_HOST=none`), or clear the **Yamaha receiver** address at `/setup` and save.
+2. Answer **on** to the installer's "Audio (TV)" question; or open `http://<tv>:41101/setup`, tick
+   **Show "Audio (TV)"** under Display, and save. It is off by default, and the installer suggests **on** when
+   there is no receiver. You can switch it on or off, and show or hide its row, at any time.
 3. Press **Show on TV** on the status page. With no receiver address set the bar has no "Receiver not responding"
    title; it simply shows the TV's rows.
 
