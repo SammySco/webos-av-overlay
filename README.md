@@ -1,5 +1,8 @@
 # AV Overlay for LG webOS and Yamaha Receivers
 
+
+> **Denon / Marantz:** this fork adds Denon AVR support (telnet or web API). See [docs/DENON.md](docs/DENON.md).
+
 [![Build IPK](https://github.com/SammySco/webos-av-overlay/actions/workflows/build.yml/badge.svg)](https://github.com/SammySco/webos-av-overlay/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/SammySco/webos-av-overlay)](https://github.com/SammySco/webos-av-overlay/releases/latest)
 [![Licence: MIT](https://img.shields.io/github/license/SammySco/webos-av-overlay)](LICENSE)

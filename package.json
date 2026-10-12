@@ -27,7 +27,8 @@
   "scripts": {
     "package": "sh scripts/package.sh",
     "release": "sh scripts/make-release.sh",
-    "deploy": "sh scripts/deploy.sh"
+    "deploy": "sh scripts/deploy.sh",
+    "test": "node --test test/ && node scripts/test-orphan.js"
   },
   "devDependencies": {
     "@webos-tools/cli": "^3.2.6"

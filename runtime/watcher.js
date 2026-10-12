@@ -14,6 +14,14 @@ var shared = require('./shared.js');
 // Settings live in SETTINGS_FILE (written by the installer and the /setup page); environment variables are fallbacks.
 var AMP_HOST = process.env.EARC_AMP_HOST || '';
 var AMP_PORT = Number(process.env.EARC_AMP_PORT) || 80;
+// Receiver driver: 'yamaha' (Extended Control, default), 'denon' (telnet/ASCII on port 23) or 'denon-http' (web API polling on 8080)
+var AMP_TYPES = ['yamaha', 'denon', 'denon-http'];
+var AMP_TYPE = AMP_TYPES.indexOf(process.env.EARC_AMP_TYPE) >= 0 ? process.env.EARC_AMP_TYPE : 'yamaha';
+var denon = require('./denon.js');
+var ampDriver = null; // the running Denon driver, if any
+function isYamaha() { return AMP_TYPE === 'yamaha'; }
+// a saved port of 80 is the Yamaha default; Denon drivers then use their own default port
+function ampPortFor() { return (!isYamaha() && (!AMP_PORT || AMP_PORT === 80)) ? denon.DEFAULT_PORTS[AMP_TYPE] : AMP_PORT; }
 var EVENT_PORT = 41100;
 // The receiver also pushes UDP events, so these polls are the fallback and the signal/now-playing ones can be slow.
 var POLL_MS = 2000;
@@ -85,6 +93,7 @@ try {
   if (VOLUME_MODES.indexOf(_vd) >= 0) volumeDisplay = _vd;
   if (typeof loaded.ampHost === 'string' && loaded.ampHost) AMP_HOST = loaded.ampHost;
   if (Number(loaded.ampPort) > 0) AMP_PORT = Number(loaded.ampPort);
+  if (AMP_TYPES.indexOf(loaded.ampType) >= 0) AMP_TYPE = loaded.ampType;
   if (loaded.plex && typeof loaded.plex === 'object') plexSettings = loaded.plex;
   if (loaded.jellyfin && typeof loaded.jellyfin === 'object') jellyfinSettings = loaded.jellyfin;
   if (loaded.sound && typeof loaded.sound === 'object') soundSettings = loaded.sound;
@@ -108,7 +117,7 @@ function saveSoon() { // for frequent, unimportant changes (the "seen apps" list
 function saveSettings() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   try {
-    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
+    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE !== 'yamaha' ? AMP_TYPE : undefined,
       infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined,
       volFontSize: volFontSize !== 100 ? volFontSize : undefined, infoFontSize: infoFontSize !== 100 ? infoFontSize : undefined,
       plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined }, null, 1)); // 0600: may hold the Plex token / Jellyfin API key
@@ -158,6 +167,7 @@ function changeChannel(up) {
 }
 
 function ampGet(path, headers, cb) {
+  if (!isYamaha()) { cb(new Error('not available on a ' + AMP_TYPE + ' receiver')); return; } // Yamaha-only endpoints (sound rules, now playing, signal)
   if (!AMP_HOST) { cb(new Error('amp not configured - open http://<tv>:' + INFO_HTTP_PORT + '/setup')); return; }
   shared.getJson({ host: AMP_HOST, port: AMP_PORT, path: '/YamahaExtendedControl/v1' + path, headers: headers || {}, timeout: 1500, maxBytes: 65536 },
     function (err, j) { cb(err, err ? undefined : j); });
@@ -166,7 +176,7 @@ function ampGet(path, headers, cb) {
 // Switch the amp's front-panel volume scale via the YNCA XML API (the same endpoint the web setup UI uses).
 // Called when the overlay's volumeDisplay changes to/from 'db' so the front panel matches.
 function syncAmpVolumeScale(toDb) {
-  if (!AMP_HOST) return;
+  if (!AMP_HOST || !isYamaha()) return;
   var scale = toDb ? 'dB' : '0-97';
   var xml = '<?xml version="1.0" encoding="utf-8"?><YAMAHA_AV cmd="PUT"><Main_Zone><Volume><Scale>' + scale + '</Scale></Volume></Main_Zone></YAMAHA_AV>';
   var req = http.request({ host: AMP_HOST, port: AMP_PORT, method: 'POST', path: '/YamahaRemoteControl/ctrl',
@@ -211,12 +221,16 @@ var INPUT_NAMES = { tidal: 'TIDAL', net_radio: 'NET RADIO', spotify: 'Spotify', 
   airplay: 'AirPlay', server: 'Server', mc_link: 'MusicCast Link', usb: 'USB', bluetooth: 'Bluetooth', tuner: 'Tuner', napster: 'Napster' };
 function inputLabel(id) {
   if (!id) return null;
+  if (!isYamaha()) return denon.inputName(id);
   if (INPUT_NAMES[id]) return INPUT_NAMES[id];
   var h = /^hdmi([0-9])$/.exec(id);
   return h ? 'Receiver HDMI ' + h[1] : String(id).split('_').join(' ');
 }
 // the receiver input the TV's sound arrives on (default audio1, the eARC/ARC input)
-function tvInputId() { return (soundSettings && soundSettings.tvInput) || 'audio1'; }
+function tvInputId() {
+  if (!isYamaha()) return 'TV'; // Denon: the TV's eARC/ARC sound arrives on the "TV Audio" input (SI code TV)
+  return (soundSettings && soundSettings.tvInput) || 'audio1';
+}
 
 var nowKey = null, nowInFlight = false, inputKeyed = false;
 function fetchNowPlaying() {
@@ -488,6 +502,7 @@ function applySettings(v) {
   var ampChanged = false;
   if (v.ampHost !== undefined && v.ampHost !== AMP_HOST) { AMP_HOST = v.ampHost; ampChanged = true; }
   if (v.ampPort !== undefined && v.ampPort !== AMP_PORT) { AMP_PORT = v.ampPort; ampChanged = true; }
+  if (v.ampType !== undefined && v.ampType !== AMP_TYPE && AMP_TYPES.indexOf(v.ampType) >= 0) { AMP_TYPE = v.ampType; ampChanged = true; }
   if (v.corner) corner = v.corner;
   if (v.volumeDisplay && VOLUME_MODES.indexOf(v.volumeDisplay) >= 0) {
     var prevVolumeDisplay = volumeDisplay;
@@ -510,7 +525,7 @@ function applySettings(v) {
   if (ampChanged) {
     lastVolume = null; progKey = null; audioKey = null; procKey = null; lastError = null;
     state.volume = null; state.program = null; state.audio = null; state.processing = null;
-    fetchStatus(true); fetchSignal();
+    startAmp();
   }
   fetchPlex();
   fetchJellyfin();
@@ -536,7 +551,7 @@ var setupHandler = require('./setup.js')({
   volumeModes: VOLUME_MODES,
   getSettings: function () {
     var p = readPlexConfig(), j = readJellyfinConfig();
-    return { ampHost: AMP_HOST, ampPort: AMP_PORT, autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay,
+    return { ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE, ampTypes: AMP_TYPES, autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay,
       infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows,
       plexUrl: p ? p.url : '', plexPlayer: p && p.player_ip ? p.player_ip : '', plexTokenSet: !!p,
       jellyfinUrl: j ? j.url : '', jellyfinDevice: j && j.deviceName ? j.deviceName : '', jellyfinApiKeySet: !!j,
@@ -634,7 +649,7 @@ function readVolume(s) {
 // The number shown for the volume. 'numeric' mirrors the receiver's 0-97 display; 'db' shows decibels.
 function volumeText(s, value) {
   if (volumeDisplay === 'db') {
-    var av = s.actual_volume, db = (av && av.mode === 'db') ? value : value - 80.5; // numeric 0-97 maps to -80.5 .. +16.5 dB
+    var av = s.actual_volume, db = (av && av.mode === 'db') ? value : (av && typeof av.db === 'number' ? av.db : value - 80.5); // Yamaha numeric 0-97 maps to -80.5 .. +16.5 dB; Denon sends its own dB (relative - 80)
     return db.toFixed(1) + ' dB';
   }
   return value % 1 ? value.toFixed(1) : String(value);
@@ -650,11 +665,11 @@ function dB(steps) {
 // repeating it shortly afterwards guarantees the popup appears (a relaunch just refreshes it).
 var volTimer = null;
 function showVolume(value, mute) {
-  launch({ volume: value, mute: mute, text: state.volumeText, output: 'yamaha', volFontSize: volFontSize, infoFontSize: infoFontSize });
+  launch({ volume: value, mute: mute, text: state.volumeText, output: AMP_TYPE, volFontSize: volFontSize, infoFontSize: infoFontSize });
   if (volTimer) clearTimeout(volTimer);
   volTimer = setTimeout(function () {
     volTimer = null;
-    launch({ volume: state.volume, mute: state.mute, text: state.volumeText, output: 'yamaha', volFontSize: volFontSize, infoFontSize: infoFontSize });
+    launch({ volume: state.volume, mute: state.mute, text: state.volumeText, output: AMP_TYPE, volFontSize: volFontSize, infoFontSize: infoFontSize });
   }, 600);
 }
 
@@ -682,7 +697,8 @@ function handleStatus(s) {
   }
   state.program = prog;
 
-  var local = !!s.input && s.input !== tvInputId();
+  // Denon: only its network/radio/Bluetooth sources count as receiver-local; HDMI sources still show the TV's details
+  var local = !!s.input && (isYamaha() ? s.input !== tvInputId() : denon.NET_INPUTS.indexOf(String(s.input).toUpperCase()) >= 0);
   var inputChanged = s.input !== state.ampInput;
   state.ampInput = s.input || null;
   state.ampLocal = local;
@@ -710,6 +726,7 @@ function handleStatus(s) {
 }
 
 function fetchStatus(subscribe) {
+  if (!isYamaha()) return;
   if (inFlight) { refetch = true; return; }
   inFlight = true;
   var headers = subscribe ? { 'X-AppName': 'MusicCast/1.0(earc-overlay)', 'X-AppPort': String(EVENT_PORT) } : null;
@@ -723,6 +740,7 @@ function fetchStatus(subscribe) {
 
 // ---------- amp signal info (audio format) ----------
 function fetchSignal() {
+  if (!isYamaha()) return;
   if (signalInFlight) return;
   signalInFlight = true;
   ampGet('/main/getSignalInfo', null, function (err, j) {
@@ -979,6 +997,7 @@ sock.bind(EVENT_PORT, function () { log('listening for amp events on udp/' + EVE
 
 function stop() {
   try { sock.close(); } catch (e) {}
+  if (ampDriver) ampDriver.stop();
   subscriptions.forEach(function (sub) { sub.stop(); });
   process.exit(0);
 }
@@ -988,11 +1007,23 @@ process.on('unhandledRejection', function (e) { log('unhandled rejection: ' + (e
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
 
-log('service starting (yamaha ' + (AMP_HOST || 'not configured') + ', with signal info)');
+// ---------- receiver driver selection ----------
+// Yamaha is polled/subscribed by fetchStatus; a Denon driver pushes Yamaha-shaped statuses into handleStatus.
+function startAmp() {
+  if (ampDriver) { ampDriver.stop(); ampDriver = null; }
+  if (isYamaha()) { fetchStatus(true); fetchSignal(); return; }
+  if (!AMP_HOST) return;
+  var o = { host: AMP_HOST, port: ampPortFor(), log: log };
+  ampDriver = AMP_TYPE === 'denon' ? denon.createTelnetDriver(o) : denon.createHttpDriver(o);
+  ampDriver.on('alive', function () { state.lastOk = new Date(); lastError = null; });
+  ampDriver.on('status', function (s) { state.lastOk = new Date(); handleStatus(s); });
+  ampDriver.start();
+}
+
+log('service starting (' + AMP_TYPE + ' ' + (AMP_HOST || 'not configured') + (AMP_HOST ? ':' + ampPortFor() : '') + ')');
 // the app can be removed from the Homebrew Channel without any uninstall hook; clean up after ourselves then (TV only)
 require('./orphan.js').start({ runtimeDir: __dirname, appId: APP_ID, log: log, onOrphaned: stop });
-fetchStatus(true);
-fetchSignal();
+startAmp();
 startVideoWatch();
 setInterval(function () { fetchStatus(true); }, RESUBSCRIBE_MS);
 setInterval(function () { fetchStatus(false); }, POLL_MS);

@@ -7,7 +7,8 @@
 # Optional environment (skips the matching question; set EARC_NONINTERACTIVE=1 to never ask):
 #   TV_SSH_KEY            private key for ssh
 #   EARC_AMP_HOST         Yamaha receiver IP address or hostname
-#   EARC_AMP_PORT         receiver port (default 80)
+#   EARC_AMP_PORT         receiver port (default 80; Denon telnet 23, Denon web 8080)
+#   EARC_AMP_TYPE         yamaha (default), denon (telnet, port 23) or denon-http (web API polling, port 8080)
 #   EARC_PLEX_URL         Plex server URL, e.g. http://192.168.1.10:32400
 #   EARC_PLEX_TOKEN       Plex token (never put this in shell history; the prompt hides it)
 #   EARC_PLEX_PLAYER_IP   only show the Plex session from this player
@@ -70,6 +71,7 @@ valid_host() { case "$1" in ''|*[!A-Za-z0-9.-]*|.*|*.|-*|*-) return 1;; *) retur
 
 AMP_HOST="${EARC_AMP_HOST:-}"
 AMP_PORT="${EARC_AMP_PORT:-}"
+AMP_TYPE="${EARC_AMP_TYPE:-}"
 PLEX_URL="${EARC_PLEX_URL:-}"
 PLEX_TOKEN="${EARC_PLEX_TOKEN:-}"
 PLEX_PLAYER="${EARC_PLEX_PLAYER_IP:-}"
@@ -144,6 +146,7 @@ fi
 {
 	[ -z "$AMP_HOST" ] || printf 'ampHost=%s\n' "$AMP_HOST"
 	[ -z "$AMP_PORT" ] || printf 'ampPort=%s\n' "$AMP_PORT"
+	[ -z "$AMP_TYPE" ] || printf 'ampType=%s\n' "$AMP_TYPE"
 	[ -z "$PLEX_URL" ] || printf 'plexUrl=%s\n' "$PLEX_URL"
 	[ -z "$PLEX_TOKEN" ] || printf 'plexToken=%s\n' "$PLEX_TOKEN"
 	[ -z "$PLEX_PLAYER" ] || printf 'plexPlayer=%s\n' "$PLEX_PLAYER"

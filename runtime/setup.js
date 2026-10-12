@@ -100,7 +100,11 @@ module.exports = function createSetup(ctx) {
       '@media (min-width:1500px){body{font-size:26px}main{max-width:1200px}input[type=text],input[type=password],input[type=number],select,button,a.btn{font-size:26px;padding:16px 20px}}' +
       'footer{margin-top:1.2em;text-align:center;color:#6b6b73;font-size:.7em}' +
       '</style></head><body><main><h1>AV overlay setup</h1><p>Settings are saved on the TV and apply straight away.</p>' +
-      '<details><summary>' + ico('chev') + ico('amp') + 'Yamaha receiver</summary><div class="row"><div><label for="ampHost">IP address or hostname</label>' +
+      '<details><summary>' + ico('chev') + ico('amp') + 'Receiver</summary><label for="ampType">Type</label><select id="ampType">' +
+      [['yamaha', 'Yamaha (MusicCast / Extended Control)'], ['denon', 'Denon / Marantz - telnet, port 23 (instant; only one client allowed)'], ['denon-http', 'Denon / Marantz - web API polling, port 8080 (works alongside Home Assistant)']]
+        .map(function (t) { return '<option value="' + t[0] + '"' + ((s.ampType || 'yamaha') === t[0] ? ' selected' : '') + '>' + esc(t[1]) + '</option>'; }).join('') +
+      '</select><p>Port: Yamaha 80, Denon telnet 23, Denon web 8080 (80 is treated as "use the default"). Sound program rules, audio signal and now-playing details are Yamaha only.</p>' +
+      '<div class="row"><div><label for="ampHost">IP address or hostname</label>' +
       '<input id="ampHost" type="text" value="' + esc(s.ampHost) + '" placeholder="e.g. 192.168.1.50" autocomplete="off"></div>' +
       '<div class="narrow"><label for="ampPort">Port</label><input id="ampPort" type="number" min="1" max="65535" value="' + esc(s.ampPort) + '"></div></div>' +
       '</details><details><summary>' + ico('chev') + ico('plex') + 'Plex (optional)</summary><label for="plexUrl">Server URL</label>' +
@@ -203,7 +207,7 @@ module.exports = function createSetup(ctx) {
       'function collect(){var rules=[];Array.prototype.forEach.call($("rules").children,function(d){var k=d.children;' +
       'var sel=k[0].children[0],txt=k[0].children[1],kind="any",name;if(sel.value==="__other"){name=txt.value}else{var i=sel.value.indexOf("|");kind=sel.value.slice(0,i);name=sel.value.slice(i+1)}rules.push({app:name.trim(),kind:kind,program:k[1].value,decoder:k[2].value})});' +
       'return{enabled:$("sEnabled").checked,tvInput:$("sTv").value,appInput:$("sAppIn").value,default:{program:$("dProg").value,decoder:$("dDec").value},rules:rules}}' +
-      'function body(){var b={ampHost:$("ampHost").value.trim(),ampPort:$("ampPort").value,plexUrl:$("plexUrl").value.trim(),plexToken:$("plexToken").value,' +
+      'function body(){var b={ampType:$("ampType").value,ampHost:$("ampHost").value.trim(),ampPort:$("ampPort").value,plexUrl:$("plexUrl").value.trim(),plexToken:$("plexToken").value,' +
       'plexPlayer:$("plexPlayer").value.trim(),jellyfinUrl:$("jellyfinUrl").value.trim(),jellyfinApiKey:$("jellyfinApiKey").value,' +
       'jellyfinDevice:$("jellyfinDevice").value.trim(),autoInfo:$("autoInfo").checked,corner:$("corner").value,volumeDisplay:$("volMode").value,' +
       'infoLayout:$("iLayout").value,infoShowMs:Math.round(Number($("iShow").value))*1000,infoDelayMs:Math.round(Number($("iDelay").value))*1000,' +
@@ -212,7 +216,7 @@ module.exports = function createSetup(ctx) {
       'sound:collect()};if($("plexClear"))b.plexClear=$("plexClear").checked;if($("jellyfinClear"))b.jellyfinClear=$("jellyfinClear").checked;return b}' +
       'function post(p,b){return fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})}).then(function(r){return r.json()})}' +
       '$("save").onclick=function(){say("Saving...",true);post("/setup/save",body()).then(function(j){if(j.ok){say("Saved.",true);window.setTimeout(function(){location.reload()},700)}else say(j.error||"Could not save",false)}).catch(function(){say("Request failed",false)})};' +
-      '$("testAmp").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"amp",host:b.ampHost,port:b.ampPort}).then(function(j){say(j.ok?"Receiver found: "+j.model+(j.version?" (API "+j.version+")":""):(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
+      '$("testAmp").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"amp",type:b.ampType,host:b.ampHost,port:b.ampPort}).then(function(j){say(j.ok?"Receiver found: "+j.model+(j.version?" (API "+j.version+")":""):(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
       '$("testPlex").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"plex",url:b.plexUrl,token:b.plexToken}).then(function(j){say(j.ok?"Plex answered ("+j.sessions+" active session"+(j.sessions===1?"":"s")+")":(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
       '$("testJellyfin").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"jellyfin",url:b.jellyfinUrl,apiKey:b.jellyfinApiKey}).then(function(j){say(j.ok?"Jellyfin answered ("+j.sessions+" active session"+(j.sessions===1?"":"s")+")":(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
       'function now(){fetch("/setup/sound/state",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){var c=j.current||{};' +
@@ -223,8 +227,16 @@ module.exports = function createSetup(ctx) {
       '}());</script></body></html>';
   }
 
-  function testAmp(host, port, cb) {
+  function testAmp(host, port, cb, type) {
     if (!HOST_RE.test(host || '')) return cb(new Error('Enter a valid IP address or hostname'));
+    if (type === 'denon' || type === 'denon-http') { // always tested over HTTP 8080 so the test never takes the single telnet slot
+      var dp = Number(port) || 8080;
+      if (type === 'denon' || dp === 80) dp = 8080;
+      return require('./denon.js').testReceiver(host, dp, function (err, info) {
+        if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from ' + host + ':' + dp : err.message));
+        cb(null, info);
+      });
+    }
     port = Number(port) || 80;
     if (port < 1 || port > 65535) return cb(new Error('Port must be 1-65535'));
     shared.getJson({ host: host, port: port, path: '/YamahaExtendedControl/v1/system/getDeviceInfo', timeout: 2500, maxBytes: 65536 }, function (err, j) {
@@ -267,6 +279,10 @@ module.exports = function createSetup(ctx) {
       var h = String(b.ampHost).trim();
       if (h && !HOST_RE.test(h)) return { error: 'The receiver address is not valid' };
       out.ampHost = h;
+    }
+    if (b.ampType !== undefined) {
+      if (['yamaha', 'denon', 'denon-http'].indexOf(b.ampType) < 0) return { error: 'Unknown receiver type' };
+      out.ampType = b.ampType;
     }
     if (b.ampPort !== undefined && String(b.ampPort).trim() !== '') {
       var p = Number(b.ampPort);
@@ -389,7 +405,7 @@ module.exports = function createSetup(ctx) {
         if (err) return send(res, err.status || 400, { ok: false, error: err.message });
         if (b.kind === 'amp') testAmp(String(b.host || '').trim(), b.port, function (e, info) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, model: info.model, version: info.version });
-        });
+        }, String(b.type || 'yamaha'));
         else if (b.kind === 'plex') testPlex(String(b.url || '').trim(), String(b.token || '').trim(), function (e, info) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, sessions: info.sessions });
         });
