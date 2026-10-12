@@ -43,7 +43,7 @@ function ensure(appDir, opts) {
     return 'skipped';
   }
   try {
-    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    try { fs.mkdirSync(path.dirname(hook)); } catch (e) { /* exists */ }
     var tmp = hook + '.tmp';
     fs.writeFileSync(tmp, want, { mode: 493 });
     fs.chmodSync(tmp, 493);

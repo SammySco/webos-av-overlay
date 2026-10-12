@@ -6,6 +6,18 @@ var http = require('http');
 var https = require('https');
 var fs = require('fs');
 var url = require('url');
+
+// The TV's node can be very old (0.12-era): no Object.assign / Buffer.from. Keep runtime code ES5 and use these.
+function extend(target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var s = arguments[i];
+    if (s) for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) target[k] = s[k];
+  }
+  return target;
+}
+function bufferFrom(data, enc) {
+  return (Buffer.from && Buffer.from !== Uint8Array.from) ? Buffer.from(data, enc) : new Buffer(data, enc); // eslint-disable-line
+}
 // The TV's node may lack WHATWG URL (or have it throw without ICU): fall back to the legacy parser.
 function parseUrl(s) {
   try { if (url.URL) { var u = new url.URL(s); return { protocol: u.protocol, hostname: u.hostname, port: u.port, path: u.pathname + u.search }; } } catch (e) { /* fall through */ }
@@ -124,5 +136,5 @@ function jellyfinAuth(key) {
 }
 
 module.exports = {
-  jellyfinAuth: jellyfinAuth,  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+  extend: extend, bufferFrom: bufferFrom,  jellyfinAuth: jellyfinAuth,  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };

@@ -92,3 +92,41 @@ test('Jellyfin requests use Authorization: MediaBrowser Token=..., no legacy hea
   assert.ok(!seen['x-emby-token'] && !seen['x-mediabrowser-token']);
   assert.match(require('fs').readFileSync(require('path').join(__dirname, '../runtime/watcher.js'), 'utf8'), /shared\.jellyfinAuth\(cfg\.apiKey\)/);
 });
+
+test('Jellyfin test works on old node: Object.assign removed', async () => {
+  const savedA = Object.assign, savedB = Buffer.from;
+  const http = require('http');
+  const srv = http.createServer((q, r) => { const ok = /Token="k3y"/.test(q.headers.authorization || ''); r.writeHead(ok ? 200 : 401); r.end(ok ? '[]' : '{}'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + srv.address().port;
+  for (const k of Object.keys(require.cache)) if (/runtime[\\/](setup|shared)\.js$/.test(k)) delete require.cache[k];
+  const h = require('../runtime/setup.js')({ profiles: {}, getJellyfinSecret: () => null });
+  delete Object.assign; // (Buffer.from cannot be removed here: Node 20's own http needs it)
+  try {
+    const req = new (require('stream').PassThrough)();
+    req.method = 'POST'; req.url = '/setup/test'; req.headers = { host: 'x:41101', 'content-type': 'application/json' }; req.socket = {};
+    let body = '';
+    const done = new Promise(r => h(req, { writeHead() {}, end(b) { body = String(b); r(); } }, '/setup/test'));
+    req.end(JSON.stringify({ kind: 'jellyfin', url: base, apiKey: 'k3y' }));
+    await done;
+    assert.deepStrictEqual(JSON.parse(body), { ok: true, sessions: 0 });
+  } finally { Object.assign = savedA; srv.close(); }
+});
+test('handler errors are reported as 500 with the real message, not "bad json"', async () => {
+  for (const k of Object.keys(require.cache)) if (/runtime[\\/](setup|shared)\.js$/.test(k)) delete require.cache[k];
+  const h = require('../runtime/setup.js')({ profiles: {}, applySettings: () => { throw new Error('boom'); } });
+  const req = new (require('stream').PassThrough)();
+  req.method = 'POST'; req.url = '/setup/save'; req.headers = { host: 'x:41101', 'content-type': 'application/json' }; req.socket = {};
+  let code, body = '';
+  const done = new Promise(r => h(req, { writeHead(c) { code = c; }, end(b) { body = String(b); r(); } }, '/setup/save'));
+  req.end('{}');
+  await done;
+  assert.strictEqual(code, 500); assert.match(body, /boom/);
+});
+test('runtime code avoids ES2015+ APIs missing on old node', () => {
+  const fs = require('fs'), path = require('path'), dir = path.join(__dirname, '../runtime');
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(src, /Object\.assign\(|=>|\b(let|const) |copyFileSync|recursive: true|\.includes\(|startsWith|padStart/, f);
+  }
+});

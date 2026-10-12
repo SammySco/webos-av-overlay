@@ -105,7 +105,7 @@ try {
   if (typeof loaded.infoFontSize === 'number' && loaded.infoFontSize >= 50 && loaded.infoFontSize <= 200) infoFontSize = loaded.infoFontSize;
 } catch (e) {
   if (e.code !== 'ENOENT') { // unreadable or corrupt: keep a copy so the next save cannot destroy it
-    try { fs.copyFileSync(SETTINGS_FILE, SETTINGS_FILE + '.bad'); fs.chmodSync(SETTINGS_FILE + '.bad', 384); } catch (e2) {}
+    try { fs.writeFileSync(SETTINGS_FILE + '.bad', fs.readFileSync(SETTINGS_FILE)); fs.chmodSync(SETTINGS_FILE + '.bad', 384); } catch (e2) {}
     writeLog('settings could not be read (' + e.message + '); a copy was kept as ' + SETTINGS_FILE + '.bad');
   }
 }
@@ -142,7 +142,7 @@ function log(m) {
 var lastLaunchAt = 0;
 function launch(params, id) {
   lastLaunchAt = Date.now();
-  if (WATCHER_URL) params = Object.assign({ watcherBase: WATCHER_URL }, params);
+  if (WATCHER_URL) params = shared.extend({ watcherBase: WATCHER_URL }, params);
   execFile(LUNA, ['-n', '1', 'luna://com.webos.applicationManager/launch',
     JSON.stringify({ id: id || APP_ID, params: params })], function (error) {
     if (error) log('launch failed: ' + error.message);
@@ -973,7 +973,7 @@ function fetchJellyfin() {
   var cfg = readJellyfinConfig();
   if (!cfg) { clearJellyfin(); return; }
   jellyfinInFlight = true;
-  shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/Sessions', headers: Object.assign({ Accept: 'application/json' }, shared.jellyfinAuth(cfg.apiKey)),
+  shared.getJson({ url: cfg.url.replace(/\/+$/, '') + '/Sessions', headers: shared.extend({ Accept: 'application/json' }, shared.jellyfinAuth(cfg.apiKey)),
     timeout: 2500, verifyTls: cfg.verifyTls === true }, function (err, list, code) {
     jellyfinInFlight = false;
     if (err) { log('jellyfin: ' + err.message); return; }

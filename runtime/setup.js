@@ -24,12 +24,19 @@ function readJson(req, cb) {
   req.setEncoding('utf8');
   req.on('data', function (c) {
     body += c;
-    if (body.length > 32768 && !done) { done = true; cb(Object.assign(new Error('too large'), { status: 413 })); req.resume(); }
+    if (body.length > 32768 && !done) { done = true; var big = new Error('too large'); big.status = 413; cb(big); req.resume(); }
   });
   req.on('end', function () {
     if (done) return;
     done = true;
-    try { cb(null, JSON.parse(body || '{}')); } catch (e) { cb(new Error('bad json')); }
+    var parsed;
+    try { parsed = JSON.parse(body || '{}'); } catch (e) { return cb(new Error('bad json')); }
+    // the handler runs outside the JSON try: its errors are reported as what they are, not as "bad json"
+    try { cb(null, parsed); } catch (e2) {
+      var res = req.setupRes;
+      if (res && !res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ ok: false, error: 'Internal error: ' + e2.message })); }
+    }
+
   });
 }
 
@@ -252,7 +259,7 @@ module.exports = function createSetup(ctx) {
     secret = secret || (saved && saved.url === url ? (saved.token || saved.apiKey) : '');
     if (!secret) return cb(new Error('Enter the ' + (name === 'Plex' ? 'Plex token' : 'Jellyfin API key')));
     var headers = { Accept: 'application/json' };
-    if (typeof header === 'function') Object.assign(headers, header(secret)); else headers[header] = secret;
+    if (typeof header === 'function') shared.extend(headers, header(secret)); else headers[header] = secret;
     shared.getJson({ url: url.replace(/\/+$/, '') + path, headers: headers, timeout: 3000, verifyTls: !!(saved && saved.url === url && saved.verifyTls === true) }, function (err, j, code) {
       if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from the ' + name + ' server' : err.message));
       if (code === 401) return cb(new Error(name + ' rejected the ' + (name === 'Plex' ? 'token' : 'API key')));
@@ -387,6 +394,7 @@ module.exports = function createSetup(ctx) {
 
   // returns true when the request was handled
   return function handle(req, res, path) {
+    req.setupRes = res;
     if (req.method === 'POST' && path.indexOf('/setup/') === 0) {
       if (crossSite(req)) {
         if (ctx.log) ctx.log('setup: refused ' + path + ' origin=' + req.headers.origin + ' host=' + req.headers.host);
@@ -405,7 +413,7 @@ module.exports = function createSetup(ctx) {
     if (path === '/setup/ping.gif' && req.method === 'GET') {
       // 1x1 GIF: lets the Settings app detect the service with an <img> when its webview blocks XHR
       res.writeHead(200, { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
-      res.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
+      res.end(shared.bufferFrom('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
       return true;
     }
     if (path === '/setup/sound/state' && req.method === 'GET') {
