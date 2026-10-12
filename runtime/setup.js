@@ -354,10 +354,27 @@ module.exports = function createSetup(ctx) {
 
   // A browser tab on another site must not be able to change settings: a cross-site POST carries an Origin that differs from Host.
   // Scripts such as curl send no Origin and are allowed through (this is a LAN device without accounts).
+  // The webOS Settings app runs from file:// (Origin "null" or file://) and loads this page at 127.0.0.1, so those are allowed,
+  // and hostnames are compared without ports; local/loopback names count as the same machine.
+  var LOCAL_HOSTS = { 'localhost': 1, '127.0.0.1': 1, '::1': 1, '[::1]': 1 };
+  function hostOnly(h) {
+    h = String(h || '').trim().toLowerCase();
+    if (h.charAt(0) === '[') return h.slice(0, h.indexOf(']') + 1);
+    return h.replace(/:\d*$/, '');
+  }
   function crossSite(req) {
     var o = req.headers.origin;
     if (!o) return false;
-    try { return new (require('url').URL)(o).host !== req.headers.host; } catch (e) { return true; }
+    o = String(o).trim();
+    if (o === 'null' || /^file:/i.test(o)) return false;
+    var oh;
+    try { oh = new (require('url').URL)(o).hostname.toLowerCase(); } catch (e) { return true; }
+    var hh = hostOnly(req.headers.host);
+    if (oh === hh) return false;
+    if (LOCAL_HOSTS[oh] && LOCAL_HOSTS[hh]) return false;
+    var la = (req.socket && req.socket.localAddress || '').replace(/^::ffff:/, '');
+    if (LOCAL_HOSTS[oh] && la && /^(127\.|::1$)/.test(la)) return false;
+    return true;
   }
   function isJson(req) { return /^application\/json\b/i.test(req.headers['content-type'] || ''); }
 
