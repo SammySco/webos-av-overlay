@@ -213,7 +213,9 @@ Short Message setting first.
 **Can I see whether Dolby Atmos, DTS or PCM is reaching my receiver?**
 Yes. The info bar shows the audio format, sample rate and bit depth the receiver reports, plus the sound
 program and decoder. Boxes that decode audio themselves, such as an Apple TV, send PCM, so the bar shows
-PCM. Neither the receiver nor the TV reports a channel count; the optional Plex integration can show the
+PCM. The receiver does not report a channel count. The optional "Audio (TV)" row (switch it on in Setup) shows what
+the TV itself sees on its input; on HDMI that includes a channel count, but it counts the HDMI link's channels (an
+Apple TV sends 5.1 as 8), and on Live TV and LG apps it shows only the codec. The optional Plex integration can show the
 codec and channels of the stream itself.
 
 **Does it work with other TVs or other receiver brands?**
