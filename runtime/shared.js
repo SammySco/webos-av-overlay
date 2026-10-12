@@ -52,7 +52,7 @@ function getJson(o, cb) {
     opts.headers = o.headers || {};
     opts.timeout = o.timeout || 2500;
     var mod = opts.protocol === 'https:' ? https : http;
-    if (opts.protocol === 'https:') opts.rejectUnauthorized = o.verifyTls === true;
+    if (opts.protocol === 'https:') { opts.rejectUnauthorized = o.verifyTls === true; if (!/^[\d.:]+$/.test(opts.host)) opts.servername = opts.host; } // explicit SNI for older node
     var max = o.maxBytes || 262144;
     var req = mod.get(opts, function (res) {
       var body = '', size = 0;
