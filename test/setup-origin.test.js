@@ -25,3 +25,28 @@ test('foreign origins refused', () => {
   assert.strictEqual(post('http://127.0.0.1:41101', '192.168.253.8:41101'), 403);
   assert.strictEqual(post('garbage', '192.168.253.8:41101'), 403);
 });
+
+// Real LAN request as Firefox sends it, against the module loaded with and without WHATWG URL (the TV's node).
+function lanPost(h, origin) {
+  let code;
+  const req = { method: 'POST', headers: { host: '192.168.253.8:41101', origin, 'content-type': 'text/plain', 'user-agent': 'Mozilla/5.0 Firefox/131.0' },
+    socket: { localAddress: '::ffff:192.168.253.8', remoteAddress: '::ffff:192.168.253.20' } };
+  h(req, { writeHead: c => { code = c; }, end() {} }, '/setup/test');
+  return code;
+}
+test('LAN Firefox request passes, also when url.URL is missing or throws', () => {
+  const url = require('url');
+  const saved = url.URL;
+  for (const variant of [saved, undefined, function () { throw new TypeError('URL needs ICU'); }]) {
+    url.URL = variant;
+    for (const k of Object.keys(require.cache)) if (/runtime[\\/](setup|shared)\.js$/.test(k)) delete require.cache[k];
+    const h = require('../runtime/setup.js')({ profiles: {} });
+    assert.strictEqual(lanPost(h, 'http://192.168.253.8:41101'), 415);
+    assert.strictEqual(lanPost(h, 'http://evil.example'), 403);
+    assert.strictEqual(lanPost(h, 'http://192.168.253.9:41101'), 403);
+  }
+  url.URL = saved;
+});
+test('origin matching the connected address passes even if Host differs', () => {
+  assert.strictEqual(post('http://192.168.253.8:41101', 'lgtv.lan:41101', '::ffff:192.168.253.8'), 415);
+});

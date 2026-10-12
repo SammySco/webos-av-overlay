@@ -34,7 +34,7 @@ function readJson(req, cb) {
 }
 
 function validUrl(u) {
-  try { var p = new (require('url').URL)(u); return (p.protocol === 'http:' || p.protocol === 'https:') && !!p.hostname; }
+  try { var p = shared.parseUrl(u); return (p.protocol === 'http:' || p.protocol === 'https:') && !!p.hostname; }
   catch (e) { return false; }
 }
 
@@ -362,17 +362,24 @@ module.exports = function createSetup(ctx) {
     if (h.charAt(0) === '[') return h.slice(0, h.indexOf(']') + 1);
     return h.replace(/:\d*$/, '');
   }
+  // Origin's host, parsed by hand: the TV's node can lack (or throw from) WHATWG URL, which made every origin "foreign".
+  function originHost(o) {
+    var m = /^[a-z][a-z0-9+.-]*:\/\/(\[[^\]]*\]|[^:\/?#]*)(:\d*)?\/?$/i.exec(o);
+    return m && m[1] ? m[1].toLowerCase() : null;
+  }
+  function bare(a) { return String(a || '').replace(/^::ffff:/, '').replace(/^\[|\]$/g, '').toLowerCase(); }
   function crossSite(req) {
     var o = req.headers.origin;
     if (!o) return false;
     o = String(o).trim();
     if (o === 'null' || /^file:/i.test(o)) return false;
-    var oh;
-    try { oh = new (require('url').URL)(o).hostname.toLowerCase(); } catch (e) { return true; }
+    var oh = originHost(o);
+    if (!oh) return true;
     var hh = hostOnly(req.headers.host);
-    if (oh === hh) return false;
+    if (oh === hh) return false;                                        // same host as the browser asked for
+    var la = bare(req.socket && req.socket.localAddress);
+    if (la && bare(oh) === la) return false;                            // the address the browser connected to
     if (LOCAL_HOSTS[oh] && LOCAL_HOSTS[hh]) return false;
-    var la = (req.socket && req.socket.localAddress || '').replace(/^::ffff:/, '');
     if (LOCAL_HOSTS[oh] && la && /^(127\.|::1$)/.test(la)) return false;
     return true;
   }
@@ -381,7 +388,10 @@ module.exports = function createSetup(ctx) {
   // returns true when the request was handled
   return function handle(req, res, path) {
     if (req.method === 'POST' && path.indexOf('/setup/') === 0) {
-      if (crossSite(req)) { send(res, 403, { ok: false, error: 'Cross-site request refused' }); return true; }
+      if (crossSite(req)) {
+        if (ctx.log) ctx.log('setup: refused ' + path + ' origin=' + req.headers.origin + ' host=' + req.headers.host);
+        send(res, 403, { ok: false, error: 'Cross-site request refused (origin ' + req.headers.origin + ', host ' + req.headers.host + ')' }); return true;
+      }
       if (!isJson(req)) { send(res, 415, { ok: false, error: 'Send JSON (Content-Type: application/json)' }); return true; }
     }
     if (path === '/setup' && req.method === 'GET') {
@@ -390,6 +400,12 @@ module.exports = function createSetup(ctx) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(page(L));
       });
+      return true;
+    }
+    if (path === '/setup/ping.gif' && req.method === 'GET') {
+      // 1x1 GIF: lets the Settings app detect the service with an <img> when its webview blocks XHR
+      res.writeHead(200, { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+      res.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
       return true;
     }
     if (path === '/setup/sound/state' && req.method === 'GET') {

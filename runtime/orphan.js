@@ -25,11 +25,11 @@ function appDirFor(runtimeDir, appId) {
   return dir.replace(/\\/g, '/').slice(-tail.length) === tail ? dir : '';
 }
 
-// Removes the boot hook (only if it is a symlink into this app), the pid files and the state directory.
+// Removes the boot hook (only if it is a symlink into this app or our sh wrapper), the pid files and the state directory.
 function cleanup(appDir, opts, log) {
   var removed = [];
   try {
-    if (fs.lstatSync(opts.hook).isSymbolicLink() && fs.readlinkSync(opts.hook).indexOf(appDir + path.sep) === 0) {
+    if (require('./hook.js').isOurs(opts.hook, appDir)) {
       fs.unlinkSync(opts.hook);
       removed.push('boot hook');
     }

@@ -173,7 +173,9 @@ if [ -f /tmp/earc-volume-overlay.pid ]; then
 fi
 mkdir -p /var/lib/webosbrew/init.d
 chmod 755 "$APP_DIR/runtime/91-earc-volume-overlay"
-ln -sf "$APP_DIR/runtime/91-earc-volume-overlay" /var/lib/webosbrew/init.d/91-earc-volume-overlay
+rm -f /var/lib/webosbrew/init.d/91-earc-volume-overlay
+printf "#!/bin/sh\n# earc-volume-overlay boot hook (runs the app script with sh, so it needs no executable bit)\nS=\"%s\"\n[ -f \"\$S\" ] && exec /bin/sh \"\$S\"\nexit 0\n" "$APP_DIR/runtime/91-earc-volume-overlay" > /var/lib/webosbrew/init.d/91-earc-volume-overlay
+chmod 755 /var/lib/webosbrew/init.d/91-earc-volume-overlay
 rm -f /tmp/earc-volume-overlay.pid /tmp/earc-volume-overlay.ipk
 /var/lib/webosbrew/init.d/91-earc-volume-overlay'
 echo "Installed and enabled. Log: /tmp/earc-volume-overlay.log"

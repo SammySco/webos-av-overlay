@@ -12,7 +12,8 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT INT TERM
 cp -R app/. "$STAGE/"
 mkdir -p "$STAGE/runtime"
-cp runtime/watcher.js runtime/setup.js runtime/profiles.js runtime/configure.js runtime/shared.js runtime/orphan.js runtime/denon.js runtime/91-earc-volume-overlay "$STAGE/runtime/"
+cp runtime/watcher.js runtime/setup.js runtime/profiles.js runtime/configure.js runtime/shared.js runtime/orphan.js runtime/denon.js runtime/hook.js runtime/91-earc-volume-overlay "$STAGE/runtime/"
+chmod 755 "$STAGE/runtime/91-earc-volume-overlay"
 npx ares-package "$STAGE" --no-minify -o build
 
 IPK="build/com.sammysco.avoverlay_${VERSION}_all.ipk"

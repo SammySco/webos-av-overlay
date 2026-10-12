@@ -5,7 +5,14 @@
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
-var URL = require('url').URL;
+var url = require('url');
+// The TV's node may lack WHATWG URL (or have it throw without ICU): fall back to the legacy parser.
+function parseUrl(s) {
+  try { if (url.URL) { var u = new url.URL(s); return { protocol: u.protocol, hostname: u.hostname, port: u.port, path: u.pathname + u.search }; } } catch (e) { /* fall through */ }
+  var p = url.parse(String(s));
+  if (!p.protocol || !p.hostname) throw new Error('Invalid URL');
+  return { protocol: p.protocol, hostname: p.hostname, port: p.port || '', path: p.path || '/' };
+}
 var spawn = require('child_process').spawn;
 var execFile = require('child_process').execFile;
 
@@ -37,8 +44,8 @@ function getJson(o, cb) {
   var opts;
   try {
     if (o.url) {
-      var u = new URL(o.url);
-      opts = { protocol: u.protocol, host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search };
+      var u = parseUrl(o.url);
+      opts = { protocol: u.protocol, host: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.path };
     } else {
       opts = { protocol: o.protocol || 'http:', host: o.host, port: o.port, path: o.path };
     }
@@ -111,5 +118,6 @@ function writeFileAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
-module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+module.exports = {
+  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };

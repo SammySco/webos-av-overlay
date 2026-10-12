@@ -545,6 +545,7 @@ var profiles = require('./profiles.js')({
 });
 
 var setupHandler = require('./setup.js')({
+  log: log,
   profiles: profiles,
   getSound: function () { return soundSettings; },
   corners: CORNERS,
@@ -565,7 +566,14 @@ var setupHandler = require('./setup.js')({
 http.createServer(function (req, res) {
   var path = req.url.split('?')[0];
   var wantsHtml = /text\/html/.test(req.headers.accept || '');
-  var headers = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
+  var headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true', 'Cache-Control': 'no-store' };
+  if (req.method === 'OPTIONS') {
+    // CORS / Private Network Access preflight (the Settings app runs from file:// and probes 127.0.0.1)
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+    headers['Access-Control-Allow-Headers'] = req.headers['access-control-request-headers'] || 'Content-Type';
+    headers['Access-Control-Max-Age'] = '600';
+    res.writeHead(204, headers); res.end(); return;
+  }
   if (setupHandler(req, res, path)) return;
   if (path === '/info') {
     showInfoNow('http ' + req.socket.remoteAddress);
@@ -1022,6 +1030,10 @@ function startAmp() {
 
 log('service starting (' + AMP_TYPE + ' ' + (AMP_HOST || 'not configured') + (AMP_HOST ? ':' + ampPortFor() : '') + ')');
 // the app can be removed from the Homebrew Channel without any uninstall hook; clean up after ourselves then (TV only)
+(function () {
+  var hookDir = require('./orphan.js').appDirFor(__dirname, APP_ID);
+  if (hookDir) { var hr = require('./hook.js').ensure(hookDir); if (hr !== 'ok') log('boot hook: ' + hr); }
+}());
 require('./orphan.js').start({ runtimeDir: __dirname, appId: APP_ID, log: log, onOrphaned: stop });
 startAmp();
 startVideoWatch();
