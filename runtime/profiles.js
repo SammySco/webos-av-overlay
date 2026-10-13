@@ -55,7 +55,10 @@ module.exports = function createProfiles(ctx) {
       var ins = (dFeatures && dFeatures.inputs && dFeatures.inputs.length) ? dFeatures.inputs : denonSound.DEFAULT_INPUTS;
       var inLabels = {};
       ins.forEach(function (i) { inLabels[i.value] = i.label; });
-      return { amp: 'denon', model: (dFeatures && dFeatures.model) || null, programs: modes, programLabels: labels, decoders: [],
+      var groups = denonSound.groupsFor(dFeatures && dFeatures.model).map(function (g) {
+        return { label: g.label, items: (g.group !== 'PURE' ? [g.group] : []).concat(g.modes.map(function (m) { return g.group + '|' + m; })) };
+      });
+      return { amp: 'denon', model: (dFeatures && dFeatures.model) || null, programs: modes, programLabels: labels, programGroups: groups, decoders: [],
         inputs: ins.map(function (i) { return i.value; }), inputLabels: inLabels };
     }
     return {
@@ -249,12 +252,20 @@ module.exports = function createProfiles(ctx) {
       return done();
     }
     last.key = key; last.rule = rule ? rule.app : '(default)'; last.program = target.program; last.decoder = null;
-    if (!force && dLast.key === key && dLast.program === target.program) { note(key + ': already ' + target.program); return done(); }
-    ctx.denonHttp(denonSound.commandPath(target.program), function (err) {
-      if (err) note(key + ': the receiver refused ' + target.program + ' (' + err.message + ')');
-      else { dLast = { key: key, program: target.program }; note(key + ' -> ' + target.program); }
-      done();
-    });
+    // the receiver reports its mode ("Dolby Atmos") and group (MOVIE...): only what differs is sent. Auto is not
+    // reported as such (the decoder in use is), so it is sent once per context unless forced.
+    var cmds = denonSound.commandsFor(target.program, { mode: st.mode, genre: st.genre });
+    var label = denonSound.modeLabel(target.program);
+    if (!cmds.length || (target.program === 'AUTO' && !force && dLast.key === key && dLast.program === target.program)) {
+      note(key + ': already ' + label + (st.mode ? ' (' + st.mode + ')' : '')); return done();
+    }
+    (function next(i) {
+      if (i >= cmds.length) { dLast = { key: key, program: target.program }; note(key + ' -> ' + label + ' (MS' + cmds.join(', MS') + ')'); return done(); }
+      ctx.denonHttp(denonSound.commandPath(cmds[i]), function (err) {
+        if (err) { note(key + ': the receiver refused MS' + cmds[i] + ' (' + err.message + ')'); return done(); }
+        setTimeout(function () { next(i + 1); }, i + 1 < cmds.length ? 400 : 0); // give the group switch time to settle
+      });
+    }(0));
   }
 
   function run(force) {

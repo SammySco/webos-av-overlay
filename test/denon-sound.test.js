@@ -66,3 +66,45 @@ test('Denon default is Auto unless set to "leave unchanged"', () => {
   const src = fs.readFileSync(path.join(__dirname, '../runtime/profiles.js'), 'utf8');
   assert.match(src, /dn && s\.default === undefined \? \{ program: 'AUTO' \}/);
 });
+
+test('reading the current mode and group (real X2400H answers)', () => {
+  const FX = path.join(__dirname, 'fixtures');
+  assert.strictEqual(denon.parseSurroundXml(fs.readFileSync(path.join(FX, 'x2400h-surround-atmos.xml'), 'utf8')), 'Dolby Atmos');
+  assert.strictEqual(denon.parseGenreXml(fs.readFileSync(path.join(FX, 'x2400h-soundmode.xml'), 'utf8')), 'MOVIE');
+});
+
+test('only what differs is sent', () => {
+  const now = { mode: 'Dolby Atmos', genre: 'MOVIE' };
+  assert.deepStrictEqual(ds.commandsFor('MOVIE|DOLBY DIGITAL', now), []);
+  assert.deepStrictEqual(ds.commandsFor('MOVIE', now), []);
+  assert.deepStrictEqual(ds.commandsFor('MOVIE|MCH STEREO', now), ['MCH STEREO']);
+  assert.deepStrictEqual(ds.commandsFor('MUSIC|STEREO', now), ['MUSIC', 'STEREO']);
+  assert.deepStrictEqual(ds.commandsFor('PURE|PURE DIRECT', now), ['PURE DIRECT']);
+  assert.deepStrictEqual(ds.commandsFor('DOLBY DIGITAL', now), []);           // a 2.5.0 rule (mode only)
+  assert.deepStrictEqual(ds.commandsFor('AUTO', now), ['AUTO']);              // Auto is not reported as such
+  assert.strictEqual(ds.modeLabel('MOVIE|DOLBY DIGITAL'), 'Movie / Dolby Atmos/Surround');
+});
+
+test('grouped rule against the fake AVR: group then mode, nothing when already there', async () => {
+  const fake = createFake();
+  const ports = await new Promise(r => fake.listen(0, 0, (t, h) => r({ t, h })));
+  const sound = { amp: 'denon', enabled: true, tvInput: 'TV', rules: [{ app: 'Tuner', kind: 'amp', program: 'MUSIC|STEREO' }, { app: 'CD', kind: 'amp', program: 'MOVIE|DOLBY DIGITAL' }] };
+  let store = sound;
+  const drv = denon.createHttpDriver({ host: '127.0.0.1', port: ports.h, pollMs: 50, modePollMs: 100 }).start();
+  const profiles = require('../runtime/profiles.js')({
+    log: () => {}, luna: '/nonexistent', ampGet: (p, cb) => cb(new Error('x')), getSound: () => store, setSound: o => { store = o; },
+    getPlexApp: () => null, inputLabel: id => denon.inputName(id), ampType: () => 'denon-http', denonState: () => drv.state(),
+    denonHttp: (p, cb) => denon.httpGet('127.0.0.1', ports.h, p, cb) });
+  drv.on('status', s => profiles.onAmpStatus(s));
+  try {
+    fake.apply('SICD'); await wait(400);
+    profiles.applyNow(); await wait(400);
+    assert.deepStrictEqual(fake.commands, []);                     // already Movie / Dolby Atmos
+    fake.apply('SITUNER'); await wait(400);
+    profiles.applyNow(); await wait(1200);
+    assert.deepStrictEqual(fake.commands, ['MSMUSIC', 'MSSTEREO']);
+    await wait(300);
+    profiles.applyNow(); await wait(400);
+    assert.deepStrictEqual(fake.commands, ['MSMUSIC', 'MSSTEREO']); // read back: no repeat
+  } finally { drv.stop(); fake.close(); }
+});

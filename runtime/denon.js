@@ -176,6 +176,11 @@ function parseLiteXml(xml, st) {
   return st;
 }
 function parseSurroundXml(xml) { return xmlValue(xml, 'surround'); }
+// AppCommand0300 GetSoundMode: <param name="movie" control="2">1</param> ... -> 'MOVIE' | 'MUSIC' | 'GAME' | 'PURE' | null
+function parseGenreXml(xml) {
+  var re = /<param name="(movie|music|game|pure)"[^>]*>\s*1\s*</i, m = re.exec(String(xml || ''));
+  return m ? m[1].toUpperCase() : null;
+}
 // the web API reports inputs by name ("TV", "Blu-ray", or the user's rename); map names that are SI codes
 function httpRequest(o, body, cb) {
   var done = false;
@@ -191,6 +196,7 @@ function httpRequest(o, body, cb) {
   if (body) req.write(body);
   req.end();
 }
+var GENRE_CMD = '<?xml version="1.0" encoding="utf-8" ?>\n<tx>\n<cmd id="3">\n<name>GetSoundMode</name>\n<list>\n<param name="movie"></param>\n<param name="music"></param>\n<param name="game"></param>\n<param name="pure"></param>\n</list>\n</cmd>\n</tx>\n';
 var SURROUND_CMD = '<?xml version="1.0" encoding="utf-8"?>\n<tx>\n<cmd id="1">GetSurroundModeStatus</cmd>\n</tx>';
 function createHttpDriver(opts) {
   var em = new EventEmitter(), st = newState(), t1 = null, t2 = null, busy = false, log = opts.log || function () {}, lastErr = null;
@@ -212,6 +218,11 @@ function createHttpDriver(opts) {
       var m = parseSurroundXml(xml);
       if (m && m !== st.mode) { st.mode = m; em.emit('status', toStatus(st)); }
     });
+    httpRequest({ host: opts.host, port: port, path: '/goform/AppCommand0300.xml' }, GENRE_CMD, function (err, xml) {
+      if (err) return;
+      var g = parseGenreXml(xml);
+      if (g) st.genre = g; // the remote app's group (MOVIE / MUSIC / GAME / PURE = Direct)
+    });
   }
   em.start = function () { pollMain(); pollMode(); t1 = setInterval(pollMain, opts.pollMs || 500); t2 = setInterval(pollMode, opts.modePollMs || 3000); return em; };
   em.stop = function () { clearInterval(t1); clearInterval(t2); };
@@ -232,7 +243,7 @@ function testReceiver(host, port, cb) {
 module.exports = {
   INPUTS: INPUTS, NET_INPUTS: NET_INPUTS, MODES: MODES, parseMV: parseMV, relToDb: relToDb, dbToRel: dbToRel,
   inputName: inputName, modeName: modeName, newState: newState, parseLine: parseLine, ready: ready, toStatus: toStatus,
-  parseLiteXml: parseLiteXml, parseSurroundXml: parseSurroundXml, createTelnetDriver: createTelnetDriver,
+  parseLiteXml: parseLiteXml, parseSurroundXml: parseSurroundXml, parseGenreXml: parseGenreXml, createTelnetDriver: createTelnetDriver,
   createHttpDriver: createHttpDriver,
   httpGet: function (host, port, path, cb) { httpRequest({ host: host, port: port, path: path, timeout: 3000 }, null, cb); }, testReceiver: testReceiver, DEFAULT_PORTS: { denon: 23, 'denon-http': 8080 }
 };

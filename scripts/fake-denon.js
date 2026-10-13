@@ -11,6 +11,7 @@ function createFakeDenon(opts) {
   opts = opts || {};
   var st = { PW: 'ON', ZM: 'ON', MV: '50', MU: 'OFF', SI: 'TV', MS: 'DOLBY DIGITAL' };
   var client = null, received = [];
+  var fake = { genre: 'MOVIE', last: {} };
   function line(k) { return k + st[k] + '\r'; }
   function send(t) { if (client) client.write(t); }
   function apply(cmd) {
@@ -22,6 +23,11 @@ function createFakeDenon(opts) {
     if (k === 'MV' && (v === 'UP' || v === 'DOWN')) { var n = Number(st.MV.length === 3 ? st.MV / 10 : st.MV) + (v === 'UP' ? 0.5 : -0.5); st.MV = n % 1 ? String(Math.round(n * 10)).padStart(3, '0') : String(n).padStart(2, '0'); }
     else st[k] = v;
     if (k === 'PW') st.ZM = v === 'ON' ? 'ON' : 'OFF';
+    if (k === 'MS') { // like the X2400H: a group command picks that group's last mode; Dolby is reported as "Dolby Atmos"
+      if (/^(MOVIE|MUSIC|GAME)$/.test(v)) { fake.genre = v; st.MS = fake.last[v] || 'STEREO'; }
+      else if (/DIRECT/.test(v)) { fake.genre = 'PURE'; }
+      else { if (v === 'DOLBY DIGITAL') st.MS = 'Dolby Atmos'; if (fake.genre !== 'PURE') fake.last[fake.genre] = st.MS; else fake.genre = 'MOVIE'; }
+    }
     send(line(k));
   }
   var telnet = net.createServer(function (s) {
@@ -38,6 +44,11 @@ function createFakeDenon(opts) {
       res.writeHead(200, { 'Content-Type': 'text/xml' });
       return res.end('<?xml version="1.0" encoding="utf-8" ?>\n<item>\n<Power><value>' + st.PW + '</value></Power>\n<InputFuncSelect><value>' + st.SI +
         '</value></InputFuncSelect>\n<VolumeDisplay><value>Absolute</value></VolumeDisplay>\n<MasterVolume><value>' + db() + '</value></MasterVolume>\n<Mute><value>' + st.MU.toLowerCase() + '</value></Mute>\n</item>\n');
+    }
+    if (req.url === '/goform/AppCommand0300.xml' && req.method === 'POST') { // GetSoundMode: the active group
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      return res.end('<?xml version="1.0" encoding="utf-8" ?>\n<rx>\n<cmd>\n<name>GetSoundMode</name>\n<list>\n' +
+        ['movie', 'music', 'game', 'pure'].map(function (g) { return '<param name="' + g + '" control="2">' + (fake.genre === g.toUpperCase() ? 1 : 0) + '</param>\n'; }).join('') + '</list>\n</cmd>\n</rx>\n');
     }
     if (req.url === '/goform/AppCommand.xml' && req.method === 'POST') {
       res.writeHead(200, { 'Content-Type': 'text/xml' });
@@ -56,7 +67,7 @@ function createFakeDenon(opts) {
   });
   web.commands = [];
   return {
-    commands: web.commands,
+    commands: web.commands, fake: fake,
     state: st, received: received, apply: apply,
     hasClient: function () { return !!client; },
     listen: function (tp, hp, cb) { var n = 0; function d() { if (++n === 2 && cb) cb(telnet.address().port, web.address().port); } telnet.listen(tp, '127.0.0.1', d); web.listen(hp, '127.0.0.1', d); },

@@ -73,7 +73,7 @@ module.exports = function createSetup(ctx) {
     });
     var dn = L.amp === 'denon';
     var data = JSON.stringify({
-      amp: dn ? 'denon' : 'yamaha', programs: L.programs, programLabels: L.programLabels || null, decoders: L.decoders,
+      amp: dn ? 'denon' : 'yamaha', programs: L.programs, programLabels: L.programLabels || null, programGroups: L.programGroups || null, decoders: L.decoders,
       inputs: L.inputs, inputLabels: L.inputLabels || null, choices: L.choices,
       sound: { enabled: !!sound.enabled, tvInput: sound.tvInput || (dn ? 'TV' : 'audio1'), appInput: sound.appInput || '',
         default: sound.default !== undefined ? sound.default : (dn ? { program: 'AUTO' } : null), rules: rulesForPage, seen: sound.seen || [] }
@@ -173,7 +173,10 @@ module.exports = function createSetup(ctx) {
       'function say(t,ok){msg.textContent=t;msg.className=ok?"ok":"bad"}' +
       'function pretty(p){return (D.programLabels&&D.programLabels[p])||p.split("_").join(" ")}' +
       'function opt(sel,v,label,cur){var o=document.createElement("option");o.value=v;o.textContent=label;if(v===cur)o.selected=true;sel.appendChild(o)}' +
-      'function fillProg(sel,cur){opt(sel,"","(leave unchanged)",cur||"");D.programs.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +
+      'function fillProg(sel,cur){opt(sel,"","(leave unchanged)",cur||"");if(!D.programGroups){D.programs.forEach(function(p){opt(sel,p,pretty(p),cur)});return}' +
+      'var used={};if(D.programs.indexOf("AUTO")>=0){opt(sel,"AUTO","Auto",cur);used.AUTO=1}' +
+      'D.programGroups.forEach(function(g){var og=document.createElement("optgroup");og.label=g.label;g.items.forEach(function(v){used[v]=1;opt(og,v,pretty(v),cur)});sel.appendChild(og)});' +
+      'var rest=D.programs.filter(function(p){return !used[p]});if(rest.length){var o2=document.createElement("optgroup");o2.label="Other (mode only)";rest.forEach(function(v){opt(o2,v,pretty(v),cur)});sel.appendChild(o2)}}' +
       'function fillDec(sel,cur){opt(sel,"","(no change)",cur||"");D.decoders.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +
       'function sync(ps,ds){ds.disabled=ps.value!=="surr_decoder";if(!D.decoders.length)ds.style.display="none"}' +
       'var S=D.sound,inputs=D.inputs.length?D.inputs.slice():["audio1","audio2","audio3","hdmi1","hdmi2","hdmi3","hdmi4"];' +
