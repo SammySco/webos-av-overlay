@@ -137,21 +137,24 @@ function jellyfinAuth(key) {
 
 // Jellyfin clients that run on the TV itself (the source is then not an HDMI input)
 var JELLYFIN_TV_APPS = /^(org\.moonfin\.webos|org\.jellyfin\.webos)$|moonfin|jellyfin/i;
-function isJellyfinTvApp(appId) { return !!appId && JELLYFIN_TV_APPS.test(appId); }
+function isJellyfinTvApp(appId, title) { return (!!appId && JELLYFIN_TV_APPS.test(appId)) || (!!title && /moonfin|jellyfin/i.test(title)); }
 
-function pickJellyfinSession(list, cfg, onTv) {
+function pickJellyfinSession(list, cfg, onTv, strict) {
   var active = list.filter(function (s) { return s && !!s.NowPlayingItem; });
   if (cfg.deviceName) {
     var dn = cfg.deviceName.toLowerCase();
-    return active.filter(function (s) {
+    var named = active.filter(function (s) {
       return (s.DeviceName || '').toLowerCase().indexOf(dn) >= 0 ||
              (s.Client || '').toLowerCase().indexOf(dn) >= 0;
-    })[0] || null;
+    })[0];
+    if (named) return named;
+    if (!onTv) return null;
   }
   if (onTv) {
     // prefer the session of the TV's own client (Moonfin / Jellyfin for webOS) over other devices
     var mine = active.filter(function (s) { return /moonfin|webos|lg/i.test((s.Client || '') + ' ' + (s.DeviceName || '')); })[0];
     if (mine) return mine;
+    if (strict) return null; // only the TV's own client counts
   }
   return active[0] || null;
 }

@@ -317,6 +317,7 @@ module.exports = function createProfiles(ctx) {
     onAmpStatus: onAmpStatus,
     onPlexApp: onPlexApp,
     foreground: function () { return fg.id; },
+    foregroundTitle: function () { return fg.id ? (titles[fg.id] || null) : null; },
     applyNow: function () { run(true); },
     // everything the rule editor offers in its app/input drop-down
     choices: function () {

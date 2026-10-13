@@ -141,5 +141,22 @@ test('Moonfin on the TV: polled and its session picked', () => {
   assert.strictEqual(shared.pickJellyfinSession(list, {}, false).NowPlayingItem.Id, 'a');
   assert.strictEqual(shared.pickJellyfinSession(list, { deviceName: 'firefox' }, true).NowPlayingItem.Id, 'a');
   const w = require('fs').readFileSync(require('path').join(__dirname, '../runtime/watcher.js'), 'utf8');
-  assert.match(w, /if \(!onTv && \(!state\.source/);
+
+});
+test('Moonfin matched by title and by its real session names; amp input does not matter', () => {
+  const shared = require('../runtime/shared.js');
+  assert.ok(shared.isJellyfinTvApp('com.some.unknown.id', 'Moonfin'));
+  assert.ok(shared.isJellyfinTvApp('x', 'JELLYFIN'));
+  assert.ok(!shared.isJellyfinTvApp('com.webos.app.hdmi1', 'HDMI 1'));
+  const real = [{ Client: 'Moonfin for webOS', DeviceName: 'LG Smart TV', NowPlayingItem: { Id: 'corridor' } }];
+  const other = [{ Client: 'Jellyfin Web', DeviceName: 'Firefox', NowPlayingItem: { Id: 'x' } }];
+  // off HDMI (TV Audio / unknown foreground): strict, TV client only
+  assert.strictEqual(shared.pickJellyfinSession(real, {}, true, true).NowPlayingItem.Id, 'corridor');
+  assert.strictEqual(shared.pickJellyfinSession(other, {}, true, true), null);
+  assert.strictEqual(shared.pickJellyfinSession(other.concat(real), {}, true, true).NowPlayingItem.Id, 'corridor');
+  // configured device that does not match still falls back to the TV's own client off HDMI
+  assert.strictEqual(shared.pickJellyfinSession(real, { deviceName: 'apple tv' }, true, true).NowPlayingItem.Id, 'corridor');
+  const w = require('fs').readFileSync(require('path').join(__dirname, '../runtime/watcher.js'), 'utf8');
+  assert.doesNotMatch(w, /if \(!onTv && \(!state\.source/); // no source gate any more
+  assert.match(w, /log\('foreground app: '/);
 });

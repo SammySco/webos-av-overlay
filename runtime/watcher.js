@@ -362,7 +362,13 @@ function evaluateLost(prevFg) {
     scheduleRestore('app change', 1200);
   }
 }
-function onForegroundChange(id, prev) { lastFg = id; evaluateLost(prev); }
+function onForegroundChange(id, prev) {
+  lastFg = id;
+  var t = profiles && profiles.foregroundTitle ? profiles.foregroundTitle() : null;
+  log('foreground app: ' + (id || 'none') + (t && t !== id ? ' (' + t + ')' : ''));
+  evaluateLost(prev);
+  if (shared.isJellyfinTvApp(id, t)) fetchJellyfin();
+}
 function onRunning(j) {
   if (!tvPinned) { overlayLost = false; return; }
   if (!j) return;
@@ -954,15 +960,22 @@ function jellyfinSummary(session) {
   return { text: 'Jellyfin: ' + bits.join(' · '), key: [(item.Id || ''), (audio && audio.Index), decision].join('|') };
 }
 
-function onTvJellyfinApp() { return shared.isJellyfinTvApp(state.appId); }
+// the TV's own foreground app (luna subscription), never the amp's input: Moonfin on 'TV Audio' is still Moonfin
+function onTvJellyfinApp() {
+  var id = (profiles && profiles.foreground()) || state.appId;
+  return shared.isJellyfinTvApp(id, profiles && profiles.foregroundTitle ? profiles.foregroundTitle() : null) || shared.isJellyfinTvApp(state.appId);
+}
 var pickJellyfinSession = shared.pickJellyfinSession;
 
 function clearJellyfin() { state.jellyfin = null; jellyfinKey = null; }
 
 function fetchJellyfin() {
   if (jellyfinInFlight) return;
+  // Polled whenever Jellyfin is configured. Off an HDMI input, only a session of the TV's own client
+  // (Moonfin / Jellyfin for webOS, or the configured device) is shown, so another device's playback is not mistaken for it.
   var onTv = onTvJellyfinApp();
-  if (!onTv && (!state.source || state.source.indexOf('HDMI') !== 0)) { clearJellyfin(); return; }
+  var onHdmi = !!state.source && state.source.indexOf('HDMI') === 0;
+  var tvOnly = !onHdmi;
   var cfg = readJellyfinConfig();
   if (!cfg) { clearJellyfin(); return; }
   jellyfinInFlight = true;
@@ -972,10 +985,10 @@ function fetchJellyfin() {
     if (err) { log('jellyfin poll error: ' + err.message); return; }
     if (code !== 200) { log('jellyfin poll error: HTTP ' + code + (code === 401 ? ' (API key rejected)' : '')); return; }
     if (!Array.isArray(list)) { log('jellyfin poll error: unexpected answer (not a session list)'); clearJellyfin(); return; }
-    var session = pickJellyfinSession(list, cfg, onTv);
+    var session = pickJellyfinSession(list, cfg, onTv || tvOnly, tvOnly);
     if (!session) {
       var playing = list.filter(function (s) { return s && s.NowPlayingItem; }).map(function (s) { return (s.Client || '?') + '/' + (s.DeviceName || '?'); });
-      log('jellyfin: no matching session (' + (onTv ? 'app ' + state.appId : state.source) + (cfg.deviceName ? ', device filter "' + cfg.deviceName + '"' : '') + '; playing: ' + (playing.join(', ') || 'none') + ')');
+      log('jellyfin: no matching session (' + (onTv ? 'Jellyfin app in front' : (state.source || 'no source')) + (cfg.deviceName ? ', device filter "' + cfg.deviceName + '"' : '') + '; playing: ' + (playing.join(', ') || 'none') + ')');
       clearJellyfin(); return;
     }
     var sum = jellyfinSummary(session);
