@@ -56,8 +56,9 @@ module.exports = function createProfiles(ctx) {
       var inLabels = {};
       ins.forEach(function (i) { inLabels[i.value] = i.label; });
       var groups = denonSound.groupsFor(dFeatures && dFeatures.model).map(function (g) {
-        return { label: g.label, items: (g.group !== 'PURE' ? [g.group] : []).concat(g.modes.map(function (m) { return g.group + '|' + m; })) };
+        return { label: 'Advanced: ' + g.label + ' with a specific mode', items: g.modes.map(function (m) { return g.group + '|' + m; }) };
       });
+      groups.unshift({ label: 'Sound mode group (the receiver remembers the mode per group and signal)', items: ['MOVIE', 'MUSIC', 'GAME', 'PURE'] });
       return { amp: 'denon', model: (dFeatures && dFeatures.model) || null, programs: modes, programLabels: labels, programGroups: groups, decoders: [],
         inputs: ins.map(function (i) { return i.value; }), inputLabels: inLabels };
     }
@@ -256,7 +257,8 @@ module.exports = function createProfiles(ctx) {
     // reported as such (the decoder in use is), so it is sent once per context unless forced.
     var cmds = denonSound.commandsFor(target.program, { mode: st.mode, genre: st.genre });
     var label = denonSound.modeLabel(target.program);
-    if (!cmds.length || (target.program === 'AUTO' && !force && dLast.key === key && dLast.program === target.program)) {
+    if (target.program === 'AUTO') { note(key + ': Auto - receiver left as it is' + (st.mode ? ' (' + st.mode + ')' : '')); return done(); }
+    if (!cmds.length) {
       note(key + ': already ' + label + (st.mode ? ' (' + st.mode + ')' : '')); return done();
     }
     (function next(i) {

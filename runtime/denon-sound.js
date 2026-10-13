@@ -25,7 +25,7 @@ function groupsFor(model) { return (model && MODEL_GROUPS[model]) || DEFAULT_GRO
 function valuesFor(model) {
   var out = ['AUTO'];
   groupsFor(model).forEach(function (g) {
-    if (g.group !== 'PURE') out.push(g.group);
+    out.push(g.group);
     g.modes.forEach(function (m) { out.push(g.group + '|' + m); });
   });
   DEFAULT_MODES.forEach(function (m) { if (out.indexOf(m) < 0) out.push(m); }); // 2.5.0 rules (mode only) stay valid
@@ -33,7 +33,12 @@ function valuesFor(model) {
 }
 function labelFor(v) {
   var i = v.indexOf('|');
-  if (i < 0) return v === 'AUTO' ? 'Auto' : (MODE_LABELS[v] || v) + (/^(MOVIE|MUSIC|GAME)$/.test(v) ? ' (last used mode)' : '');
+  if (i < 0) {
+    if (v === 'AUTO') return 'Auto (leave the receiver as it is)';
+    if (/^(MOVIE|MUSIC|GAME)$/.test(v)) return MODE_LABELS[v];
+    if (v === 'PURE') return 'Direct';
+    return MODE_LABELS[v] || v;
+  }
   var g = v.slice(0, i), m = v.slice(i + 1);
   return (g === 'PURE' ? 'Direct' : MODE_LABELS[g]) + ' / ' + (MODE_LABELS[m] || m);
 }
@@ -48,8 +53,13 @@ function modeMatches(mode, reported) {
   var re = FAMILY[mode];
   return re ? re.test(String(reported).trim()) : String(reported).trim().toUpperCase() === mode;
 }
+// Auto = send nothing: the X2400H has no real Auto, it remembers the mode per group, input and signal type.
+// A group (MOVIE / MUSIC / GAME / PURE) is only sent when the read-back group differs; the receiver's memory then picks
+// the decoder (Atmos -> Dolby Atmos, stereo -> DTS Neural:X ...). A specific mode is the advanced choice.
 function commandsFor(value, now) {
   now = now || {};
+  if (!value || value === 'AUTO') return [];
+  if (value === 'PURE') return now.genre === 'PURE' ? [] : ['DIRECT'];
   var i = value.indexOf('|');
   var group = i < 0 ? (/^(MOVIE|MUSIC|GAME)$/.test(value) ? value : null) : value.slice(0, i);
   var mode = i < 0 ? (group ? null : value) : value.slice(i + 1);

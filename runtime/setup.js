@@ -174,7 +174,7 @@ module.exports = function createSetup(ctx) {
       'function pretty(p){return (D.programLabels&&D.programLabels[p])||p.split("_").join(" ")}' +
       'function opt(sel,v,label,cur){var o=document.createElement("option");o.value=v;o.textContent=label;if(v===cur)o.selected=true;sel.appendChild(o)}' +
       'function fillProg(sel,cur){opt(sel,"","(leave unchanged)",cur||"");if(!D.programGroups){D.programs.forEach(function(p){opt(sel,p,pretty(p),cur)});return}' +
-      'var used={};if(D.programs.indexOf("AUTO")>=0){opt(sel,"AUTO","Auto",cur);used.AUTO=1}' +
+      'var used={};if(D.programs.indexOf("AUTO")>=0){opt(sel,"AUTO",pretty("AUTO"),cur);used.AUTO=1}' +
       'D.programGroups.forEach(function(g){var og=document.createElement("optgroup");og.label=g.label;g.items.forEach(function(v){used[v]=1;opt(og,v,pretty(v),cur)});sel.appendChild(og)});' +
       'var rest=D.programs.filter(function(p){return !used[p]});if(rest.length){var o2=document.createElement("optgroup");o2.label="Other (mode only)";rest.forEach(function(v){opt(o2,v,pretty(v),cur)});sel.appendChild(o2)}}' +
       'function fillDec(sel,cur){opt(sel,"","(no change)",cur||"");D.decoders.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +

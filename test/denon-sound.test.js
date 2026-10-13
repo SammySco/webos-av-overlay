@@ -81,14 +81,17 @@ test('only what differs is sent', () => {
   assert.deepStrictEqual(ds.commandsFor('MUSIC|STEREO', now), ['MUSIC', 'STEREO']);
   assert.deepStrictEqual(ds.commandsFor('PURE|PURE DIRECT', now), ['PURE DIRECT']);
   assert.deepStrictEqual(ds.commandsFor('DOLBY DIGITAL', now), []);           // a 2.5.0 rule (mode only)
-  assert.deepStrictEqual(ds.commandsFor('AUTO', now), ['AUTO']);              // Auto is not reported as such
+  assert.deepStrictEqual(ds.commandsFor('AUTO', now), []);                   // Auto: never MSAUTO, leave as is
+  assert.deepStrictEqual(ds.commandsFor('MUSIC', now), ['MUSIC']);             // group only: the AVR picks the decoder
+  assert.deepStrictEqual(ds.commandsFor('PURE', now), ['DIRECT']);
+  assert.deepStrictEqual(ds.commandsFor('PURE', { genre: 'PURE' }), []);
   assert.strictEqual(ds.modeLabel('MOVIE|DOLBY DIGITAL'), 'Movie / Dolby Atmos/Surround');
 });
 
 test('grouped rule against the fake AVR: group then mode, nothing when already there', async () => {
   const fake = createFake();
   const ports = await new Promise(r => fake.listen(0, 0, (t, h) => r({ t, h })));
-  const sound = { amp: 'denon', enabled: true, tvInput: 'TV', rules: [{ app: 'Tuner', kind: 'amp', program: 'MUSIC|STEREO' }, { app: 'CD', kind: 'amp', program: 'MOVIE|DOLBY DIGITAL' }] };
+  const sound = { amp: 'denon', enabled: true, tvInput: 'TV', rules: [{ app: 'Tuner', kind: 'amp', program: 'MUSIC' }, { app: 'Bluetooth', kind: 'amp', program: 'GAME|STEREO' }, { app: 'Game', kind: 'amp', program: 'AUTO' }, { app: 'CD', kind: 'amp', program: 'MOVIE|DOLBY DIGITAL' }] };
   let store = sound;
   const drv = denon.createHttpDriver({ host: '127.0.0.1', port: ports.h, pollMs: 50, modePollMs: 100 }).start();
   const profiles = require('../runtime/profiles.js')({
@@ -102,9 +105,15 @@ test('grouped rule against the fake AVR: group then mode, nothing when already t
     assert.deepStrictEqual(fake.commands, []);                     // already Movie / Dolby Atmos
     fake.apply('SITUNER'); await wait(400);
     profiles.applyNow(); await wait(1200);
-    assert.deepStrictEqual(fake.commands, ['MSMUSIC', 'MSSTEREO']);
+    assert.deepStrictEqual(fake.commands, ['MSMUSIC']);                // group only
     await wait(300);
     profiles.applyNow(); await wait(400);
-    assert.deepStrictEqual(fake.commands, ['MSMUSIC', 'MSSTEREO']); // read back: no repeat
+    assert.deepStrictEqual(fake.commands, ['MSMUSIC']);                // read back: no repeat
+    fake.apply('SIGAME'); await wait(400);
+    profiles.applyNow(); await wait(400);
+    assert.deepStrictEqual(fake.commands, ['MSMUSIC']);                // Auto: nothing sent, never MSAUTO
+    fake.apply('SIBT'); await wait(400);
+    profiles.applyNow(); await wait(1200);
+    assert.deepStrictEqual(fake.commands, ['MSMUSIC', 'MSGAME', 'MSSTEREO']); // advanced: group then mode
   } finally { drv.stop(); fake.close(); }
 });
