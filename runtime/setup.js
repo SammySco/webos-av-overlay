@@ -24,17 +24,24 @@ function readJson(req, cb) {
   req.setEncoding('utf8');
   req.on('data', function (c) {
     body += c;
-    if (body.length > 32768 && !done) { done = true; cb(Object.assign(new Error('too large'), { status: 413 })); req.resume(); }
+    if (body.length > 32768 && !done) { done = true; var big = new Error('too large'); big.status = 413; cb(big); req.resume(); }
   });
   req.on('end', function () {
     if (done) return;
     done = true;
-    try { cb(null, JSON.parse(body || '{}')); } catch (e) { cb(new Error('bad json')); }
+    var parsed;
+    try { parsed = JSON.parse(body || '{}'); } catch (e) { return cb(new Error('bad json')); }
+    // the handler runs outside the JSON try: its errors are reported as what they are, not as "bad json"
+    try { cb(null, parsed); } catch (e2) {
+      var res = req.setupRes;
+      if (res && !res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ ok: false, error: 'Internal error: ' + e2.message })); }
+    }
+
   });
 }
 
 function validUrl(u) {
-  try { var p = new (require('url').URL)(u); return (p.protocol === 'http:' || p.protocol === 'https:') && !!p.hostname; }
+  try { var p = shared.parseUrl(u); return (p.protocol === 'http:' || p.protocol === 'https:') && !!p.hostname; }
   catch (e) { return false; }
 }
 
@@ -64,10 +71,12 @@ module.exports = function createSetup(ctx) {
       if (!kind) kind = 'any'; // rules saved before source types existed keep matching every source until changed
       return { app: r.app, kind: kind, program: r.program, decoder: r.decoder };
     });
+    var dn = L.amp === 'denon';
     var data = JSON.stringify({
-      programs: L.programs, decoders: L.decoders, inputs: L.inputs, choices: L.choices,
-      sound: { enabled: !!sound.enabled, tvInput: sound.tvInput || 'audio1', appInput: sound.appInput || '',
-        default: sound.default || null, rules: rulesForPage, seen: sound.seen || [] }
+      amp: dn ? 'denon' : 'yamaha', programs: L.programs, programLabels: L.programLabels || null, programGroups: L.programGroups || null, decoders: L.decoders,
+      inputs: L.inputs, inputLabels: L.inputLabels || null, choices: L.choices,
+      sound: { enabled: !!sound.enabled, tvInput: sound.tvInput || (dn ? 'TV' : 'audio1'), appInput: sound.appInput || '',
+        default: sound.default !== undefined ? sound.default : (dn ? { program: 'AUTO' } : null), rules: rulesForPage, seen: sound.seen || [] }
     }).replace(/</g, '\\u003c');
     var volNames = { numeric: 'Numeric', db: 'Decibels (dB)' };
     var volModes = ctx.volumeModes.map(function (m) {
@@ -100,7 +109,11 @@ module.exports = function createSetup(ctx) {
       '@media (min-width:1500px){body{font-size:26px}main{max-width:1200px}input[type=text],input[type=password],input[type=number],select,button,a.btn{font-size:26px;padding:16px 20px}}' +
       'footer{margin-top:1.2em;text-align:center;color:#6b6b73;font-size:.7em}' +
       '</style></head><body><main><h1>AV overlay setup</h1><p>Settings are saved on the TV and apply straight away.</p>' +
-      '<details><summary>' + ico('chev') + ico('amp') + 'Yamaha receiver</summary><div class="row"><div><label for="ampHost">IP address or hostname</label>' +
+      '<details><summary>' + ico('chev') + ico('amp') + 'Receiver</summary><label for="ampType">Type</label><select id="ampType">' +
+      [['yamaha', 'Yamaha (MusicCast / Extended Control)'], ['denon', 'Denon / Marantz - telnet, port 23 (instant; only one client allowed)'], ['denon-http', 'Denon / Marantz - web API polling, port 8080 (works alongside Home Assistant)']]
+        .map(function (t) { return '<option value="' + t[0] + '"' + ((s.ampType || 'yamaha') === t[0] ? ' selected' : '') + '>' + esc(t[1]) + '</option>'; }).join('') +
+      '</select><p>Port: Yamaha 80, Denon telnet 23, Denon web 8080 (80 is treated as "use the default"). Audio signal and now-playing details are Yamaha only; per-app sound rules work for both (save and reload after changing the type).</p>' +
+      '<div class="row"><div><label for="ampHost">IP address or hostname</label>' +
       '<input id="ampHost" type="text" value="' + esc(s.ampHost) + '" placeholder="e.g. 192.168.1.50" autocomplete="off"></div>' +
       '<div class="narrow"><label for="ampPort">Port</label><input id="ampPort" type="number" min="1" max="65535" value="' + esc(s.ampPort) + '"></div></div>' +
       '</details><details><summary>' + ico('chev') + ico('plex') + 'Plex (optional)</summary><label for="plexUrl">Server URL</label>' +
@@ -142,9 +155,10 @@ module.exports = function createSetup(ctx) {
         var checked = (s.hiddenRows || []).indexOf(k) < 0;
         return '<label><input type="checkbox" class="rowVis" value="' + k + '"' + (checked ? ' checked' : '') + '> ' + l + '</label>';
       }).join('') + '</div>' +
-      '</details><details><summary>' + ico('chev') + ico('sound') + 'Sound program per app (Yamaha)</summary>' +
-      '<p>Choose the receiver sound program for each app or input. LG apps (installed on this TV), Live TV and HDMI inputs are detected on the TV; Apple TV apps are sent by Home Assistant (see docs/HOME-ASSISTANT.md). A rule picked as an LG app only applies to the LG app, and one picked as an Apple TV app only to the Apple TV, so the two Netflix entries can differ. The receiver is only changed while it is on the input below.</p>' +
-      '<div class="check"><input id="sEnabled" type="checkbox"><label for="sEnabled" style="margin:0">Switch the sound program automatically</label></div>' +
+      '</details><details><summary>' + ico('chev') + ico('sound') + (dn ? 'Surround mode per app (Denon' + (L.model ? ' ' + esc(L.model) : '') + ')' : 'Sound program per app (Yamaha)') + '</summary>' +
+      (dn ? '<p>Choose the Denon surround mode for each app or input. The receiver picks a decoder that suits the signal (Movie on a Dolby source plays Dolby Surround, and so on); Auto lets it decide. Modes are sent over the web API, so this works while Home Assistant holds the telnet connection. The mode is only changed while the receiver is on the input below, except for rules for the receiver\'s own sources.</p>' : '') +
+      '<p' + (dn ? ' style="display:none"' : '') + '>Choose the receiver sound program for each app or input. LG apps (installed on this TV), Live TV and HDMI inputs are detected on the TV; Apple TV apps are sent by Home Assistant (see docs/HOME-ASSISTANT.md). A rule picked as an LG app only applies to the LG app, and one picked as an Apple TV app only to the Apple TV, so the two Netflix entries can differ. The receiver is only changed while it is on the input below.</p>' +
+      '<div class="check"><input id="sEnabled" type="checkbox"><label for="sEnabled" style="margin:0">' + (dn ? 'Switch the surround mode automatically' : 'Switch the sound program automatically') + '</label></div>' +
       '<div class="row stack"><div><label for="sTv">Receiver input the TV is on</label><select id="sTv"></select></div>' +
       '<div><label for="sAppIn">Input the Apple TV is on</label><select id="sAppIn"></select></div></div>' +
       '<label>Default when no rule matches</label><div class="row stack"><div><select id="dProg"></select></div><div><select id="dDec"></select></div></div>' +
@@ -159,13 +173,16 @@ module.exports = function createSetup(ctx) {
       '<script type="application/json" id="data">' + data + '</script>' +
       '<script>(function(){function $(i){return document.getElementById(i)}var D=JSON.parse($("data").textContent),msg=$("msg");' +
       'function say(t,ok){msg.textContent=t;msg.className=ok?"ok":"bad"}' +
-      'function pretty(p){return p.split("_").join(" ")}' +
+      'function pretty(p){return (D.programLabels&&D.programLabels[p])||p.split("_").join(" ")}' +
       'function opt(sel,v,label,cur){var o=document.createElement("option");o.value=v;o.textContent=label;if(v===cur)o.selected=true;sel.appendChild(o)}' +
-      'function fillProg(sel,cur){opt(sel,"","(leave unchanged)",cur||"");D.programs.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +
+      'function fillProg(sel,cur){opt(sel,"","(leave unchanged)",cur||"");if(!D.programGroups){D.programs.forEach(function(p){opt(sel,p,pretty(p),cur)});return}' +
+      'var used={};if(D.programs.indexOf("AUTO")>=0){opt(sel,"AUTO",pretty("AUTO"),cur);used.AUTO=1}' +
+      'D.programGroups.forEach(function(g){var og=document.createElement("optgroup");og.label=g.label;g.items.forEach(function(v){used[v]=1;opt(og,v,pretty(v),cur)});sel.appendChild(og)});' +
+      'var rest=D.programs.filter(function(p){return !used[p]});if(rest.length){var o2=document.createElement("optgroup");o2.label="Other (mode only)";rest.forEach(function(v){opt(o2,v,pretty(v),cur)});sel.appendChild(o2)}}' +
       'function fillDec(sel,cur){opt(sel,"","(no change)",cur||"");D.decoders.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +
-      'function sync(ps,ds){ds.disabled=ps.value!=="surr_decoder"}' +
+      'function sync(ps,ds){ds.disabled=ps.value!=="surr_decoder";if(!D.decoders.length)ds.style.display="none"}' +
       'var S=D.sound,inputs=D.inputs.length?D.inputs.slice():["audio1","audio2","audio3","hdmi1","hdmi2","hdmi3","hdmi4"];' +
-      'if(inputs.indexOf(S.tvInput)<0)inputs.push(S.tvInput);inputs.forEach(function(i){opt($("sTv"),i,i,S.tvInput)});' +
+      'if(inputs.indexOf(S.tvInput)<0)inputs.push(S.tvInput);inputs.forEach(function(i){opt($("sTv"),i,(D.inputLabels&&D.inputLabels[i]&&D.inputLabels[i]!==i)?D.inputLabels[i]+" ("+i+")":i,S.tvInput)});' +
       'opt($("sAppIn"),"","any HDMI input",S.appInput);["HDMI 1","HDMI 2","HDMI 3","HDMI 4"].forEach(function(h){opt($("sAppIn"),h,h,S.appInput)});' +
       '$("sEnabled").checked=S.enabled;fillProg($("dProg"),S.default&&S.default.program);fillDec($("dDec"),S.default&&S.default.decoder);' +
       '$("dProg").onchange=function(){sync($("dProg"),$("dDec"))};sync($("dProg"),$("dDec"));' +
@@ -183,7 +200,7 @@ module.exports = function createSetup(ctx) {
       '  group("HDMI inputs","input",C.inputs.filter(function(x){return x.value!=="Live TV"}),"inputs");' +
       '  group("LG apps (installed on this TV)","lg",C.tvApps,"lg");' +
       '  group("Apple TV apps (sent by Home Assistant)","atv",C.atv,"atv");' +
-      '  group("Receiver\'s own sources (TIDAL, net radio, ...)","amp",C.amp,"amp");group("Seen recently (any source)","any",C.seen);' +
+      '  group(D.amp==="denon"?"Receiver\'s own sources":"Receiver\'s own sources (TIDAL, net radio, ...)","amp",C.amp,"amp");group("Seen recently (any source)","any",C.seen);' +
       '  if(cur&&cur!=="__other"&&!have[cur.toLowerCase()]){var g=document.createElement("optgroup");g.label="Current rule";var i=cur.indexOf("|");add(g,cur.slice(0,i),cur.slice(i+1),cur.slice(i+1));as.appendChild(g)}' +
       '  var oo=document.createElement("option");oo.value="__other";oo.textContent="Other (type a name)...";as.appendChild(oo);' +
       '  as.value=cur||""}' +
@@ -205,7 +222,7 @@ module.exports = function createSetup(ctx) {
       'function collect(){var rules=[];Array.prototype.forEach.call($("rules").children,function(d){var k=d.children;' +
       'var sel=k[0].children[0],txt=k[0].children[1],kind="any",name;if(sel.value==="__other"){name=txt.value}else{var i=sel.value.indexOf("|");kind=sel.value.slice(0,i);name=sel.value.slice(i+1)}rules.push({app:name.trim(),kind:kind,program:k[1].value,decoder:k[2].value})});' +
       'return{enabled:$("sEnabled").checked,tvInput:$("sTv").value,appInput:$("sAppIn").value,default:{program:$("dProg").value,decoder:$("dDec").value},rules:rules}}' +
-      'function body(){var b={ampHost:$("ampHost").value.trim(),ampPort:$("ampPort").value,plexUrl:$("plexUrl").value.trim(),plexToken:$("plexToken").value,' +
+      'function body(){var b={ampType:$("ampType").value,ampHost:$("ampHost").value.trim(),ampPort:$("ampPort").value,plexUrl:$("plexUrl").value.trim(),plexToken:$("plexToken").value,' +
       'plexPlayer:$("plexPlayer").value.trim(),jellyfinUrl:$("jellyfinUrl").value.trim(),jellyfinApiKey:$("jellyfinApiKey").value,' +
       'jellyfinDevice:$("jellyfinDevice").value.trim(),autoInfo:$("autoInfo").checked,tvAudio:$("tvAudio").checked,corner:$("corner").value,volumeDisplay:$("volMode").value,' +
       'infoLayout:$("iLayout").value,infoShowMs:Math.round(Number($("iShow").value))*1000,infoDelayMs:Math.round(Number($("iDelay").value))*1000,' +
@@ -214,7 +231,7 @@ module.exports = function createSetup(ctx) {
       'sound:collect()};if($("plexClear"))b.plexClear=$("plexClear").checked;if($("jellyfinClear"))b.jellyfinClear=$("jellyfinClear").checked;return b}' +
       'function post(p,b){return fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})}).then(function(r){return r.json()})}' +
       '$("save").onclick=function(){say("Saving...",true);post("/setup/save",body()).then(function(j){if(j.ok){say("Saved.",true);window.setTimeout(function(){location.reload()},700)}else say(j.error||"Could not save",false)}).catch(function(){say("Request failed",false)})};' +
-      '$("testAmp").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"amp",host:b.ampHost,port:b.ampPort}).then(function(j){say(j.ok?"Receiver found: "+j.model+(j.version?" (API "+j.version+")":""):(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
+      '$("testAmp").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"amp",type:b.ampType,host:b.ampHost,port:b.ampPort}).then(function(j){say(j.ok?"Receiver found: "+j.model+(j.version?" (API "+j.version+")":""):(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
       '$("testPlex").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"plex",url:b.plexUrl,token:b.plexToken}).then(function(j){say(j.ok?"Plex answered ("+j.sessions+" active session"+(j.sessions===1?"":"s")+")":(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
       '$("testJellyfin").onclick=function(){say("Testing...",true);var b=body();post("/setup/test",{kind:"jellyfin",url:b.jellyfinUrl,apiKey:b.jellyfinApiKey}).then(function(j){say(j.ok?"Jellyfin answered ("+j.sessions+" active session"+(j.sessions===1?"":"s")+")":(j.error||"No answer"),j.ok)}).catch(function(){say("Request failed",false)})};' +
       'function now(){fetch("/setup/sound/state",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){var c=j.current||{};' +
@@ -225,8 +242,16 @@ module.exports = function createSetup(ctx) {
       '}());</script></body></html>';
   }
 
-  function testAmp(host, port, cb) {
+  function testAmp(host, port, cb, type) {
     if (!HOST_RE.test(host || '')) return cb(new Error('Enter a valid IP address or hostname'));
+    if (type === 'denon' || type === 'denon-http') { // always tested over HTTP 8080 so the test never takes the single telnet slot
+      var dp = Number(port) || 8080;
+      if (type === 'denon' || dp === 80) dp = 8080;
+      return require('./denon.js').testReceiver(host, dp, function (err, info) {
+        if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from ' + host + ':' + dp : err.message));
+        cb(null, info);
+      });
+    }
     port = Number(port) || 80;
     if (port < 1 || port > 65535) return cb(new Error('Port must be 1-65535'));
     shared.getJson({ host: host, port: port, path: '/YamahaExtendedControl/v1/system/getDeviceInfo', timeout: 2500, maxBytes: 65536 }, function (err, j) {
@@ -242,7 +267,7 @@ module.exports = function createSetup(ctx) {
     secret = secret || (saved && saved.url === url ? (saved.token || saved.apiKey) : '');
     if (!secret) return cb(new Error('Enter the ' + (name === 'Plex' ? 'Plex token' : 'Jellyfin API key')));
     var headers = { Accept: 'application/json' };
-    headers[header] = secret;
+    if (typeof header === 'function') shared.extend(headers, header(secret)); else headers[header] = secret;
     shared.getJson({ url: url.replace(/\/+$/, '') + path, headers: headers, timeout: 3000, verifyTls: !!(saved && saved.url === url && saved.verifyTls === true) }, function (err, j, code) {
       if (err) return cb(new Error(err.message === 'timeout' ? 'No answer from the ' + name + ' server' : err.message));
       if (code === 401) return cb(new Error(name + ' rejected the ' + (name === 'Plex' ? 'token' : 'API key')));
@@ -259,7 +284,7 @@ module.exports = function createSetup(ctx) {
   }
 
   function testJellyfin(url, apiKey, cb) {
-    testMediaServer('Jellyfin', 'http://192.168.1.10:8096', url, apiKey, ctx.getJellyfinSecret(), '/Sessions', 'X-MediaBrowser-Token',
+    testMediaServer('Jellyfin', 'http://192.168.1.10:8096', url, apiKey, ctx.getJellyfinSecret(), '/Sessions', shared.jellyfinAuth,
       function (j) { return j.filter(function (x) { return !!x.NowPlayingItem; }).length; }, cb);
   }
 
@@ -269,6 +294,10 @@ module.exports = function createSetup(ctx) {
       var h = String(b.ampHost).trim();
       if (h && !HOST_RE.test(h)) return { error: 'The receiver address is not valid' };
       out.ampHost = h;
+    }
+    if (b.ampType !== undefined) {
+      if (['yamaha', 'denon', 'denon-http'].indexOf(b.ampType) < 0) return { error: 'Unknown receiver type' };
+      out.ampType = b.ampType;
     }
     if (b.ampPort !== undefined && String(b.ampPort).trim() !== '') {
       var p = Number(b.ampPort);
@@ -341,17 +370,45 @@ module.exports = function createSetup(ctx) {
 
   // A browser tab on another site must not be able to change settings: a cross-site POST carries an Origin that differs from Host.
   // Scripts such as curl send no Origin and are allowed through (this is a LAN device without accounts).
+  // The webOS Settings app runs from file:// (Origin "null" or file://) and loads this page at 127.0.0.1, so those are allowed,
+  // and hostnames are compared without ports; local/loopback names count as the same machine.
+  var LOCAL_HOSTS = { 'localhost': 1, '127.0.0.1': 1, '::1': 1, '[::1]': 1 };
+  function hostOnly(h) {
+    h = String(h || '').trim().toLowerCase();
+    if (h.charAt(0) === '[') return h.slice(0, h.indexOf(']') + 1);
+    return h.replace(/:\d*$/, '');
+  }
+  // Origin's host, parsed by hand: the TV's node can lack (or throw from) WHATWG URL, which made every origin "foreign".
+  function originHost(o) {
+    var m = /^[a-z][a-z0-9+.-]*:\/\/(\[[^\]]*\]|[^:\/?#]*)(:\d*)?\/?$/i.exec(o);
+    return m && m[1] ? m[1].toLowerCase() : null;
+  }
+  function bare(a) { return String(a || '').replace(/^::ffff:/, '').replace(/^\[|\]$/g, '').toLowerCase(); }
   function crossSite(req) {
     var o = req.headers.origin;
     if (!o) return false;
-    try { return new (require('url').URL)(o).host !== req.headers.host; } catch (e) { return true; }
+    o = String(o).trim();
+    if (o === 'null' || /^file:/i.test(o)) return false;
+    var oh = originHost(o);
+    if (!oh) return true;
+    var hh = hostOnly(req.headers.host);
+    if (oh === hh) return false;                                        // same host as the browser asked for
+    var la = bare(req.socket && req.socket.localAddress);
+    if (la && bare(oh) === la) return false;                            // the address the browser connected to
+    if (LOCAL_HOSTS[oh] && LOCAL_HOSTS[hh]) return false;
+    if (LOCAL_HOSTS[oh] && la && /^(127\.|::1$)/.test(la)) return false;
+    return true;
   }
   function isJson(req) { return /^application\/json\b/i.test(req.headers['content-type'] || ''); }
 
   // returns true when the request was handled
   return function handle(req, res, path) {
+    req.setupRes = res;
     if (req.method === 'POST' && path.indexOf('/setup/') === 0) {
-      if (crossSite(req)) { send(res, 403, { ok: false, error: 'Cross-site request refused' }); return true; }
+      if (crossSite(req)) {
+        if (ctx.log) ctx.log('setup: refused ' + path + ' origin=' + req.headers.origin + ' host=' + req.headers.host);
+        send(res, 403, { ok: false, error: 'Cross-site request refused (origin ' + req.headers.origin + ', host ' + req.headers.host + ')' }); return true;
+      }
       if (!isJson(req)) { send(res, 415, { ok: false, error: 'Send JSON (Content-Type: application/json)' }); return true; }
     }
     if (path === '/setup' && req.method === 'GET') {
@@ -360,6 +417,12 @@ module.exports = function createSetup(ctx) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(page(L));
       });
+      return true;
+    }
+    if (path === '/setup/ping.gif' && req.method === 'GET') {
+      // 1x1 GIF: lets the Settings app detect the service with an <img> when its webview blocks XHR
+      res.writeHead(200, { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+      res.end(shared.bufferFrom('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
       return true;
     }
     if (path === '/setup/sound/state' && req.method === 'GET') {
@@ -392,7 +455,7 @@ module.exports = function createSetup(ctx) {
         if (err) return send(res, err.status || 400, { ok: false, error: err.message });
         if (b.kind === 'amp') testAmp(String(b.host || '').trim(), b.port, function (e, info) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, model: info.model, version: info.version });
-        });
+        }, String(b.type || 'yamaha'));
         else if (b.kind === 'plex') testPlex(String(b.url || '').trim(), String(b.token || '').trim(), function (e, info) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, sessions: info.sessions });
         });

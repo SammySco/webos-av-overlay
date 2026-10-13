@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<name>GetSoundMode</name>
+<list>
+<param name="movie" control="2">1</param>
+<param name="music" control="2">0</param>
+<param name="game" control="2">0</param>
+<param name="pure" control="2">0</param>
+</list>
+</cmd>
+</rx>

@@ -13,6 +13,7 @@
 // default) matches. The receiver is only commanded when its current program differs from the target.
 
 var shared = require('./shared.js');
+var denonSound = require('./denon-sound.js');
 
 var DEFAULT_PROGRAMS = ['munich', 'vienna', 'chamber', 'cellar_club', 'roxy_theatre', 'bottom_line', 'sports', 'action_game',
   'roleplaying_game', 'music_video', 'standard', 'spectacle', 'sci-fi', 'adventure', 'drama', 'mono_movie', '2ch_stereo',
@@ -45,8 +46,24 @@ module.exports = function createProfiles(ctx) {
   var lastKey = null, lastKind = null, timer = null, busy = false;
   var last = { key: null, rule: null, program: null, decoder: null, result: 'not run yet', at: null };
   var ampInput = null;
+  var dFeatures = null, dFeaturesAt = 0;  // Denon: { model, genres, inputs } from Deviceinfo.xml
+  function isDenon() { return !!(ctx.ampType && ctx.ampType() !== 'yamaha'); }
 
   function lists() {
+    if (isDenon()) {
+      var modes = denonSound.modesFor(dFeatures && dFeatures.model);
+      var labels = {};
+      modes.forEach(function (m) { labels[m] = denonSound.modeLabel(m); });
+      var ins = (dFeatures && dFeatures.inputs && dFeatures.inputs.length) ? dFeatures.inputs : denonSound.DEFAULT_INPUTS;
+      var inLabels = {};
+      ins.forEach(function (i) { inLabels[i.value] = i.label; });
+      var groups = denonSound.groupsFor(dFeatures && dFeatures.model).map(function (g) {
+        return { label: 'Advanced: ' + g.label + ' with a specific mode', items: g.modes.map(function (m) { return g.group + '|' + m; }) };
+      });
+      groups.unshift({ label: 'Sound mode group (the receiver remembers the mode per group and signal)', items: ['MOVIE', 'MUSIC', 'GAME', 'PURE'] });
+      return { amp: 'denon', model: (dFeatures && dFeatures.model) || null, programs: modes, programLabels: labels, programGroups: groups, decoders: [],
+        inputs: ins.map(function (i) { return i.value; }), inputLabels: inLabels };
+    }
     return {
       programs: (features && features.programs) || DEFAULT_PROGRAMS,
       decoders: (features && features.decoders) || DEFAULT_DECODERS,
@@ -55,6 +72,14 @@ module.exports = function createProfiles(ctx) {
   }
 
   function loadFeatures(cb) {
+    if (isDenon()) {
+      if (dFeatures && Date.now() - dFeaturesAt < 10 * 60 * 1000) return cb && cb(dFeatures);
+      if (!ctx.denonHttp) return cb && cb(null);
+      return ctx.denonHttp('/goform/Deviceinfo.xml', function (err, xml) {
+        if (!err && xml) { dFeatures = denonSound.parseDeviceInfo(xml); dFeaturesAt = Date.now(); }
+        if (cb) cb(dFeatures);
+      });
+    }
     if (features && Date.now() - featuresAt < 10 * 60 * 1000) return cb && cb(features);
     ctx.ampGet('/system/getFeatures', function (err, j) {
       if (!err && j && j.zone) {
@@ -72,11 +97,13 @@ module.exports = function createProfiles(ctx) {
 
   function cfg() {
     var s = ctx.getSound() || {};
+    var dn = isDenon();
     return {
       enabled: !!s.enabled,
-      tvInput: typeof s.tvInput === 'string' && s.tvInput ? s.tvInput : 'audio1',
+      tvInput: typeof s.tvInput === 'string' && s.tvInput ? s.tvInput : (dn ? 'TV' : 'audio1'),
       appInput: typeof s.appInput === 'string' ? s.appInput : '',
-      def: s.default && s.default.program ? s.default : null,
+      // Denon: "Auto" when no rule matches, unless the user chose "(leave unchanged)" (saved as null)
+      def: s.default && s.default.program ? s.default : (dn && s.default === undefined ? { program: 'AUTO' } : null),
       rules: Array.isArray(s.rules) ? s.rules : [],
       seen: Array.isArray(s.seen) ? s.seen : []
     };
@@ -209,11 +236,48 @@ module.exports = function createProfiles(ctx) {
     });
   }
 
+  // Denon: the web API does not report the surround mode on every model, so a mode is sent when the context or the
+  // target changes (or on Apply now), not compared with the receiver's current mode.
+  var dLast = { key: null, program: null };
+  function runDenon(force, c) {
+    var st = ctx.denonState ? ctx.denonState() : null;
+    var done = function () { busy = false; };
+    if (!st || !st.power) { note('receiver not reachable'); return done(); }
+    ampInput = st.input;
+    if (st.power !== 'on') { note('receiver is off'); return done(); }
+    var key = contextKey();
+    if (!key) { note('nothing to match (home screen or unknown input)'); return done(); }
+    rememberSeen(key);
+    var rule = findRule(key, contextKind(), c);
+    var target = st.input === c.tvInput ? (rule || c.def) : rule; // a receiver source: only an explicit rule, never the default
+    if (!target || !target.program) {
+      note(key + (st.input === c.tvInput ? ': no rule and no default - left alone' : ': receiver source with no rule - left alone'));
+      return done();
+    }
+    last.key = key; last.rule = rule ? rule.app : '(default)'; last.program = target.program; last.decoder = null;
+    // the receiver reports its mode ("Dolby Atmos") and group (MOVIE...): only what differs is sent. Auto is not
+    // reported as such (the decoder in use is), so it is sent once per context unless forced.
+    var cmds = denonSound.commandsFor(target.program, { mode: st.mode, genre: st.genre });
+    var label = denonSound.modeLabel(target.program);
+    if (target.program === 'AUTO') { note(key + ': Auto - receiver left as it is' + (st.mode ? ' (' + st.mode + ')' : '')); return done(); }
+    if (!cmds.length) {
+      note(key + ': already ' + label + (st.mode ? ' (' + st.mode + ')' : '')); return done();
+    }
+    (function next(i) {
+      if (i >= cmds.length) { dLast = { key: key, program: target.program }; note(key + ' -> ' + label + ' (MS' + cmds.join(', MS') + ')'); return done(); }
+      ctx.denonHttp(denonSound.commandPath(cmds[i]), function (err) {
+        if (err) { note(key + ': the receiver refused MS' + cmds[i] + ' (' + err.message + ')'); return done(); }
+        setTimeout(function () { next(i + 1); }, i + 1 < cmds.length ? 400 : 0); // give the group switch time to settle
+      });
+    }(0));
+  }
+
   function run(force) {
     var c = cfg();
     if (!c.enabled && !force) return;
     if (busy) { schedule(500); return; }
     busy = true;
+    if (isDenon()) return runDenon(force, c);
     ctx.ampGet('/main/getStatus', function (err, s) {
       var done = function () { busy = false; };
       if (err || !s || s.response_code !== 0) { note('receiver not reachable'); return done(); }
@@ -249,7 +313,7 @@ module.exports = function createProfiles(ctx) {
     var pn = pushedName();
     var onAtv = pn && /^spotify$/i.test(pn) && /^HDMI/.test(friendly(fg.id) || '') &&
       (!c.appInput || c.appInput === friendly(fg.id));
-    if (!c.enabled || !onAtv || ampInput !== 'spotify' || guardBusy) { guardHits = 0; return; }
+    if (isDenon() || !c.enabled || !onAtv || ampInput !== 'spotify' || guardBusy) { guardHits = 0; return; }
     guardBusy = true;
     ctx.ampGet('/netusb/getPlayInfo', function (err, p) {
       guardBusy = false;
@@ -320,6 +384,7 @@ module.exports = function createProfiles(ctx) {
     onAmpStatus: onAmpStatus,
     onPlexApp: onPlexApp,
     foreground: function () { return fg.id; },
+    foregroundTitle: function () { return fg.id ? (titles[fg.id] || null) : null; },
     applyNow: function () { run(true); },
     // everything the rule editor offers in its app/input drop-down
     choices: function () {
@@ -328,7 +393,9 @@ module.exports = function createProfiles(ctx) {
         var name = inputNames['HDMI ' + n];
         inputs.push({ value: 'HDMI ' + n, label: 'HDMI ' + n + (name && name !== 'HDMI ' + n ? ' - ' + name : '') });
       }
-      return { inputs: inputs, tvApps: tvApps.slice(), atv: ATV_APPS.slice(), amp: AMP_SOURCES.slice(), seen: cfg().seen.slice() };
+      var amp = AMP_SOURCES.slice();
+      if (isDenon()) { var DL = lists(); amp = DL.inputs.filter(function (v) { return v !== cfg().tvInput; }).map(function (v) { return ctx.inputLabel ? (ctx.inputLabel(v) || DL.inputLabels[v]) : DL.inputLabels[v]; }); }
+      return { inputs: inputs, tvApps: tvApps.slice(), atv: ATV_APPS.slice(), amp: amp, seen: cfg().seen.slice() };
     },
     refreshTitles: function (cb) { loadTitles(cb); },
     lists: function (cb) { loadFeatures(function () { cb(lists()); }); },
@@ -341,16 +408,18 @@ module.exports = function createProfiles(ctx) {
     validate: function (b) {
       var L = lists();
       if (!b || typeof b !== 'object') return { error: 'Sound settings are missing' };
+      var dn = isDenon();
       var out = { enabled: !!b.enabled };
-      var ti = String(b.tvInput || 'audio1').trim();
-      if (!/^[a-z0-9_]{1,24}$/.test(ti)) return { error: 'The receiver input name is not valid' };
+      if (dn) out.amp = 'denon';
+      var ti = String(b.tvInput || (dn ? 'TV' : 'audio1')).trim();
+      if (dn ? !/^[A-Za-z0-9/ .+:-]{1,24}$/.test(ti) : !/^[a-z0-9_]{1,24}$/.test(ti)) return { error: 'The receiver input name is not valid' };
       out.tvInput = ti;
       var ai = String(b.appInput || '').trim();
       if (ai && !/^HDMI [1-4]$/.test(ai)) return { error: 'The app input must be HDMI 1-4 or empty' };
       out.appInput = ai;
       function target(t, label) {
         if (!t || !t.program) return { value: null };
-        if (L.programs.indexOf(t.program) < 0) return { error: label + ': unknown sound program' };
+        if (L.programs.indexOf(t.program) < 0) return { error: label + ': unknown ' + (dn ? 'surround mode' : 'sound program') };
         var o = { program: t.program };
         if (t.program === 'surr_decoder' && t.decoder) {
           if (L.decoders.indexOf(t.decoder) < 0) return { error: label + ': unknown surround decoder' };
@@ -370,7 +439,7 @@ module.exports = function createProfiles(ctx) {
         if (app.length > 60 || /[\u0000-\u001f]/.test(app)) return { error: 'Rule ' + (i + 1) + ': the app name is not valid' };
         var t = target(rules[i], 'Rule "' + app + '"');
         if (t.error) return t;
-        if (!t.value) return { error: 'Rule "' + app + '": choose a sound program' };
+        if (!t.value) return { error: 'Rule "' + app + '": choose a ' + (dn ? 'surround mode' : 'sound program') };
         t.value.app = app;
         var kind = String(rules[i].kind || 'any');
         if (['any', 'input', 'lg', 'atv', 'amp'].indexOf(kind) < 0) return { error: 'Rule "' + app + '": unknown source type' };

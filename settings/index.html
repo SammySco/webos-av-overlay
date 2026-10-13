@@ -11,24 +11,37 @@ button{padding:18px 34px;border:2px solid #4a4a51;border-radius:16px;background:
 (function(){
 var BASE=localStorage.getItem('watcherBase')||'http://127.0.0.1:41101';
 var msg=document.getElementById('msg'),retry=document.getElementById('retry');
+var tries=0;
+function go(){localStorage.setItem('watcherBase',BASE);location.replace(BASE+'/setup')}
 function open(){
   retry.style.display='none';msg.textContent='Opening settings...';
-  var x=new XMLHttpRequest();x.timeout=3000;
-  x.onload=function(){if(x.status===200){localStorage.setItem('watcherBase',BASE);location.replace(BASE+'/setup')}else fail()};
-  x.onerror=x.ontimeout=fail;
-  try{x.open('GET',BASE+'/status.json',true);x.send()}catch(e){fail()}
+  var x=new XMLHttpRequest();x.timeout=5000;
+  // any HTTP answer means the service is up (opaque/blocked responses report status 0)
+  x.onload=function(){if(x.status>0)go();else probe()};
+  x.onerror=x.ontimeout=probe;
+  try{x.open('GET',BASE+'/status.json?t='+Date.now(),true);x.send()}catch(e){probe()}
 }
+// Fallback when the webview blocks XHR from file:// to the local service: an <img> load is not subject to CORS.
+function probe(){
+  var i=new Image(),done=false,t=setTimeout(function(){if(!done){done=true;again()}},5000);
+  i.onload=i.onerror=function(ev){if(done)return;done=true;clearTimeout(t);
+    if(ev.type==='load')go();else again()};
+  i.src=BASE+'/setup/ping.gif?t='+Date.now();
+}
+function again(){if(++tries<3)setTimeout(open,1500);else fail()}
 function fail(){
   if(BASE==='http://127.0.0.1:41101')
     msg.innerHTML='The overlay service is not running on this TV. Check that it is rooted and reboot, or run the installer again.<br><br>Running the watcher in Docker? Open <b>http://&lt;docker-host&gt;:41101/setup</b> in a browser instead, or tap below to enter the URL.';
   else
     msg.innerHTML='Could not reach the watcher at <b>'+BASE+'</b>. Check that the Docker container is running.';
   retry.style.display='inline-block';retry.textContent='Try again / change URL';retry.focus();
+  if(!openBtn){openBtn=document.createElement('button');openBtn.textContent='Open settings anyway';openBtn.style.marginLeft='20px';openBtn.onclick=go;retry.parentNode.appendChild(openBtn)}
 }
+var openBtn=null;
 retry.onclick=function(){
   var u=prompt('Watcher base URL',BASE);
   if(u){BASE=u.replace(/\/+$/,'');localStorage.setItem('watcherBase',BASE);}
-  open();
+  tries=0;open();
 };
 open();
 }());

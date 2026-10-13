@@ -26,7 +26,7 @@ function plexNow(settings) {
 
 function get() {
   var s = readJson(SETTINGS_FILE), p = plexNow(s);
-  [['ampHost', s.ampHost || ''], ['ampPort', s.ampPort || ''], ['corner', s.corner || ''],
+  [['ampType', s.ampType || 'yamaha'], ['ampHost', s.ampHost || ''], ['ampPort', s.ampPort || ''], ['corner', s.corner || ''],
     ['autoInfo', s.autoInfo === false ? 'off' : 'on'], ['tvAudio', s.tvAudio === true ? 'on' : 'off'], ['plexUrl', p ? p.url : ''],
     ['plexPlayer', p && p.player_ip ? p.player_ip : ''], ['plexTokenSet', p ? 'yes' : 'no']]
     .forEach(function (kv) { console.log(kv[0] + '=' + kv[1]); });
@@ -43,6 +43,10 @@ function set(input) {
   else if (v.ampHost !== undefined && v.ampHost !== '') {
     if (!HOST_RE.test(v.ampHost)) { console.error('invalid amp host'); process.exit(2); }
     s.ampHost = v.ampHost;
+  }
+  if (v.ampType) {
+    if (['yamaha', 'denon', 'denon-http'].indexOf(v.ampType) < 0) { console.error('invalid amp type'); process.exit(2); }
+    s.ampType = v.ampType;
   }
   if (v.ampPort) {
     var port = Number(v.ampPort);

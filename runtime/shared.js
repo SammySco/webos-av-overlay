@@ -5,7 +5,26 @@
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
-var URL = require('url').URL;
+var url = require('url');
+
+// The TV's node can be very old (0.12-era): no Object.assign / Buffer.from. Keep runtime code ES5 and use these.
+function extend(target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var s = arguments[i];
+    if (s) for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) target[k] = s[k];
+  }
+  return target;
+}
+function bufferFrom(data, enc) {
+  return (Buffer.from && Buffer.from !== Uint8Array.from) ? Buffer.from(data, enc) : new Buffer(data, enc); // eslint-disable-line
+}
+// The TV's node may lack WHATWG URL (or have it throw without ICU): fall back to the legacy parser.
+function parseUrl(s) {
+  try { if (url.URL) { var u = new url.URL(s); return { protocol: u.protocol, hostname: u.hostname, port: u.port, path: u.pathname + u.search }; } } catch (e) { /* fall through */ }
+  var p = url.parse(String(s));
+  if (!p.protocol || !p.hostname) throw new Error('Invalid URL');
+  return { protocol: p.protocol, hostname: p.hostname, port: p.port || '', path: p.path || '/' };
+}
 var spawn = require('child_process').spawn;
 var execFile = require('child_process').execFile;
 
@@ -58,15 +77,15 @@ function getJson(o, cb) {
   var opts;
   try {
     if (o.url) {
-      var u = new URL(o.url);
-      opts = { protocol: u.protocol, host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search };
+      var u = parseUrl(o.url);
+      opts = { protocol: u.protocol, host: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.path };
     } else {
       opts = { protocol: o.protocol || 'http:', host: o.host, port: o.port, path: o.path };
     }
     opts.headers = o.headers || {};
     opts.timeout = o.timeout || 2500;
     var mod = opts.protocol === 'https:' ? https : http;
-    if (opts.protocol === 'https:') opts.rejectUnauthorized = o.verifyTls === true;
+    if (opts.protocol === 'https:') { opts.rejectUnauthorized = o.verifyTls === true; if (!/^[\d.:]+$/.test(opts.host)) opts.servername = opts.host; } // explicit SNI for older node
     var max = o.maxBytes || 262144;
     var req = mod.get(opts, function (res) {
       var body = '', size = 0;
@@ -125,7 +144,7 @@ function lunaSubscribe(luna, uri, params, onJson, log, name) {
       proc = null;
       if (stopped) return;
       log(name + ' subscription ended (' + code + '), restarting in 5s');
-      setTimeout(start, 5000);
+      var rt = setTimeout(start, 5000); if (rt.unref) rt.unref(); // the watcher has other timers; tests can exit
     });
   }
   start();
@@ -142,5 +161,80 @@ function writeFileAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
-module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, ROW_LABELS: ROW_LABELS, ROW_HELP: ROW_HELP, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+// Jellyfin 10.11+ ignores the legacy X-Emby/X-MediaBrowser token headers: use the Authorization scheme.
+function jellyfinAuth(key) {
+  return { Authorization: 'MediaBrowser Client="AV Overlay", Device="webOS TV", DeviceId="earc-volume-overlay", Version="1", Token="' + String(key || '').replace(/["\\\r\n]/g, '') + '"' };
+}
+
+// Jellyfin clients that run on the TV itself (the source is then not an HDMI input)
+var JELLYFIN_TV_APPS = /^(org\.moonfin\.webos|org\.jellyfin\.webos)$|moonfin|jellyfin/i;
+function isJellyfinTvApp(appId, title) { return (!!appId && JELLYFIN_TV_APPS.test(appId)) || (!!title && /moonfin|jellyfin/i.test(title)); }
+
+function pickJellyfinSession(list, cfg, onTv, strict) {
+  var active = list.filter(function (s) { return s && !!s.NowPlayingItem; });
+  if (cfg.deviceName) {
+    var dn = cfg.deviceName.toLowerCase();
+    var named = active.filter(function (s) {
+      return (s.DeviceName || '').toLowerCase().indexOf(dn) >= 0 ||
+             (s.Client || '').toLowerCase().indexOf(dn) >= 0;
+    })[0];
+    if (named) return named;
+    if (!onTv) return null;
+  }
+  if (onTv) {
+    // prefer the session of the TV's own client (Moonfin / Jellyfin for webOS) over other devices
+    var mine = active.filter(function (s) { return /moonfin|webos|lg/i.test((s.Client || '') + ' ' + (s.DeviceName || '')); })[0];
+    if (mine) return mine;
+    if (strict) return null; // only the TV's own client counts
+  }
+  return active[0] || null;
+}
+
+// Auto-info change detection for media rows. Only a change of stable identity announces (item, audio/video stream,
+// play method); bitrate, progress and transcode stats never do. A session that drops out of a poll or two and comes
+// back with the same identity is not announced again (grace window).
+function mediaAnnouncer(graceMs) {
+  var last = null, goneAt = 0;
+  graceMs = graceMs === undefined ? 30000 : graceMs;
+  return {
+    seen: function (key, now) {
+      now = now || Date.now(); goneAt = 0;
+      if (key === last) return false;
+      last = key; return true;
+    },
+    gone: function (now) {
+      now = now || Date.now();
+      if (!goneAt) goneAt = now;
+      else if (now - goneAt >= graceMs) last = null;
+    }
+  };
+}
+function jellyfinIdentity(session) {
+  var item = session.NowPlayingItem || {}, streams = item.MediaStreams || [], ps = session.PlayState || {};
+  var a = null, v = null;
+  if (ps.AudioStreamIndex !== undefined && ps.AudioStreamIndex !== null) a = streams.filter(function (s) { return s.Index === ps.AudioStreamIndex; })[0] || null;
+  streams.forEach(function (s) {
+    if (!a && s.Type === 'Audio' && s.IsDefault) a = s;
+    if (s.Type === 'Video' && !v) v = s;
+  });
+  if (!a) a = streams.filter(function (s) { return s.Type === 'Audio'; })[0] || null;
+  return [item.Id || item.Name || '', a ? [a.Language, a.Codec, a.Channels].join('/') : '', v ? [v.Codec, v.VideoRangeType || v.VideoRange].join('/') : '',
+    ps.PlayMethod || ''].join('|');
+}
+function plexIdentity(md) {
+  var media = (md.Media || [])[0] || {}, part = (media.Part || [])[0] || {}, streams = part.Stream || [];
+  var a = null, v = null;
+  streams.forEach(function (st) {
+    if (st.streamType === 2 && (st.selected || !a)) a = st;
+    if (st.streamType === 1 && !v) v = st;
+  });
+  var tc = md.TranscodeSession;
+  var decision = !tc ? 'direct' : (tc.videoDecision === 'transcode' || tc.audioDecision === 'transcode') ? 'transcode' : 'copy';
+  return [md.ratingKey || md.title || '', a ? [a.languageCode, a.codec, a.channels].join('/') : '', v ? [v.codec, v.DOVIPresent ? 'dv' : '', v.colorTrc].join('/') : '', decision].join('|');
+}
+
+module.exports = {
+  mediaAnnouncer: mediaAnnouncer, jellyfinIdentity: jellyfinIdentity, plexIdentity: plexIdentity,
+  isJellyfinTvApp: isJellyfinTvApp, pickJellyfinSession: pickJellyfinSession, extend: extend, bufferFrom: bufferFrom, jellyfinAuth: jellyfinAuth, parseUrl: parseUrl,
+  APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, ROW_LABELS: ROW_LABELS, ROW_HELP: ROW_HELP, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, stopAllSubscriptions: stopAllSubscriptions, reapOrphanSubscriptions: reapOrphanSubscriptions, writeFileAtomic: writeFileAtomic };

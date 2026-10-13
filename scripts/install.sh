@@ -6,9 +6,10 @@
 #
 # Optional environment (skips the matching question; set EARC_NONINTERACTIVE=1 to never ask):
 #   TV_SSH_KEY            private key for ssh
-#   EARC_AMP_HOST         Yamaha receiver IP address or hostname; unset keeps the saved one, "none" removes it (the
+#   EARC_AMP_HOST         receiver IP address or hostname; unset keeps the saved one, "none" removes it (the
 #                         info bar then shows only what the TV and Plex/Jellyfin know)
-#   EARC_AMP_PORT         receiver port (default 80)
+#   EARC_AMP_PORT         receiver port (default 80; Denon telnet 23, Denon web 8080)
+#   EARC_AMP_TYPE         yamaha (default), denon (telnet, port 23) or denon-http (web API polling, port 8080)
 #   EARC_PLEX_URL         Plex server URL, e.g. http://192.168.1.10:32400
 #   EARC_PLEX_TOKEN       Plex token (never put this in shell history; the prompt hides it)
 #   EARC_PLEX_PLAYER_IP   only show the Plex session from this player
@@ -75,6 +76,7 @@ AMP_CLEAR=0
 case "$AMP_HOST" in none|None|NONE) AMP_HOST=''; AMP_CLEAR=1;; esac
 TV_AUDIO="${EARC_TV_AUDIO:-}"
 AMP_PORT="${EARC_AMP_PORT:-}"
+AMP_TYPE="${EARC_AMP_TYPE:-}"
 PLEX_URL="${EARC_PLEX_URL:-}"
 PLEX_TOKEN="${EARC_PLEX_TOKEN:-}"
 PLEX_PLAYER="${EARC_PLEX_PLAYER_IP:-}"
@@ -166,6 +168,7 @@ fi
 	[ "$AMP_CLEAR" != 1 ] || printf 'ampClear=yes\n'
 	[ -z "$TV_AUDIO" ] || printf 'tvAudio=%s\n' "$TV_AUDIO"
 	[ -z "$AMP_PORT" ] || printf 'ampPort=%s\n' "$AMP_PORT"
+	[ -z "$AMP_TYPE" ] || printf 'ampType=%s\n' "$AMP_TYPE"
 	[ -z "$PLEX_URL" ] || printf 'plexUrl=%s\n' "$PLEX_URL"
 	[ -z "$PLEX_TOKEN" ] || printf 'plexToken=%s\n' "$PLEX_TOKEN"
 	[ -z "$PLEX_PLAYER" ] || printf 'plexPlayer=%s\n' "$PLEX_PLAYER"
@@ -193,7 +196,9 @@ if [ -f /tmp/earc-volume-overlay.pid ]; then
 fi
 mkdir -p /var/lib/webosbrew/init.d
 chmod 755 "$APP_DIR/runtime/91-earc-volume-overlay"
-ln -sf "$APP_DIR/runtime/91-earc-volume-overlay" /var/lib/webosbrew/init.d/91-earc-volume-overlay
+rm -f /var/lib/webosbrew/init.d/91-earc-volume-overlay
+printf "#!/bin/sh\n# earc-volume-overlay boot hook (runs the app script with sh, so it needs no executable bit)\nS=\"%s\"\n[ -f \"\$S\" ] && exec /bin/sh \"\$S\"\nexit 0\n" "$APP_DIR/runtime/91-earc-volume-overlay" > /var/lib/webosbrew/init.d/91-earc-volume-overlay
+chmod 755 /var/lib/webosbrew/init.d/91-earc-volume-overlay
 rm -f /tmp/earc-volume-overlay.pid /tmp/earc-volume-overlay.ipk
 /var/lib/webosbrew/init.d/91-earc-volume-overlay'
 echo "Installed and enabled. Log: /tmp/earc-volume-overlay.log"
