@@ -183,7 +183,7 @@ function httpRequest(o, body, cb) {
   var req = http.request({ host: o.host, port: o.port, path: o.path, method: body ? 'POST' : 'GET', timeout: o.timeout || 1500,
     headers: body ? { 'Content-Type': 'text/xml', 'Content-Length': Buffer.byteLength(body) } : {} }, function (res) {
     var t = ''; res.setEncoding('utf8');
-    res.on('data', function (c) { t += c; if (t.length > 65536) req.destroy(new Error('response too large')); });
+    res.on('data', function (c) { t += c; if (t.length > 262144) req.destroy(new Error('response too large')); });
     res.on('end', function () { res.statusCode === 200 ? fin(null, t) : fin(new Error('HTTP ' + res.statusCode)); });
   });
   req.on('timeout', function () { req.destroy(new Error('timeout')); });
@@ -233,5 +233,6 @@ module.exports = {
   INPUTS: INPUTS, NET_INPUTS: NET_INPUTS, MODES: MODES, parseMV: parseMV, relToDb: relToDb, dbToRel: dbToRel,
   inputName: inputName, modeName: modeName, newState: newState, parseLine: parseLine, ready: ready, toStatus: toStatus,
   parseLiteXml: parseLiteXml, parseSurroundXml: parseSurroundXml, createTelnetDriver: createTelnetDriver,
-  createHttpDriver: createHttpDriver, testReceiver: testReceiver, DEFAULT_PORTS: { denon: 23, 'denon-http': 8080 }
+  createHttpDriver: createHttpDriver,
+  httpGet: function (host, port, path, cb) { httpRequest({ host: host, port: port, path: path, timeout: 3000 }, null, cb); }, testReceiver: testReceiver, DEFAULT_PORTS: { denon: 23, 'denon-http': 8080 }
 };

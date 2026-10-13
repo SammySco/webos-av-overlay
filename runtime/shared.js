@@ -115,7 +115,7 @@ function lunaSubscribe(luna, uri, params, onJson, log, name) {
       proc = null;
       if (stopped) return;
       log(name + ' subscription ended (' + code + '), restarting in 5s');
-      setTimeout(start, 5000);
+      var rt = setTimeout(start, 5000); if (rt.unref) rt.unref(); // the watcher has other timers; tests can exit
     });
   }
   start();

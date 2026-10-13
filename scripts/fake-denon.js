@@ -43,9 +43,20 @@ function createFakeDenon(opts) {
       res.writeHead(200, { 'Content-Type': 'text/xml' });
       return res.end('<?xml version="1.0" encoding="utf-8" ?>\n<rx>\n<cmd>\n<surround>' + st.MS + '                    </surround>\n</cmd>\n</rx>\n');
     }
+    if (req.url === '/goform/Deviceinfo.xml') {
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      return res.end(require('fs').readFileSync(require('path').join(__dirname, '../test/fixtures/x2400h-deviceinfo.xml')));
+    }
+    if (req.url.indexOf('/goform/formiPhoneAppDirect.xml?') === 0) { // the HA-compatible way to send commands
+      var cmd = decodeURIComponent(req.url.slice(req.url.indexOf('?') + 1));
+      apply(cmd); web.commands.push(cmd);
+      res.writeHead(200); return res.end();
+    }
     res.writeHead(403); res.end();
   });
+  web.commands = [];
   return {
+    commands: web.commands,
     state: st, received: received, apply: apply,
     hasClient: function () { return !!client; },
     listen: function (tp, hp, cb) { var n = 0; function d() { if (++n === 2 && cb) cb(telnet.address().port, web.address().port); } telnet.listen(tp, '127.0.0.1', d); web.listen(hp, '127.0.0.1', d); },

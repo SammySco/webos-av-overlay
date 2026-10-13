@@ -82,6 +82,9 @@ var volumeDisplay = 'numeric'; // how the volume number is written: the receiver
 var volFontSize = 100;   // volume number font size as % of base (82px)
 var infoFontSize = 100;  // info bar font size as % of base (24px rows, 27px title)
 var soundSettings = null; // per-app sound program rules (see profiles.js)
+var denonSoundSettings = null; // the Denon surround-mode rules, kept apart so switching receiver type keeps both
+function soundStore() { return isYamaha() ? soundSettings : denonSoundSettings; }
+function setSoundStore(o) { if (o && o.amp === 'denon') denonSoundSettings = o; else if (o) soundSettings = o; }
 var plexSettings = null; // {url, token, player_ip} from the settings file; falls back to the legacy PLEX_CONFIG file
 var jellyfinSettings = null; // {url, apiKey, deviceName} — apiKey is private: never print, log or commit
 try {
@@ -97,6 +100,7 @@ try {
   if (loaded.plex && typeof loaded.plex === 'object') plexSettings = loaded.plex;
   if (loaded.jellyfin && typeof loaded.jellyfin === 'object') jellyfinSettings = loaded.jellyfin;
   if (loaded.sound && typeof loaded.sound === 'object') soundSettings = loaded.sound;
+  if (loaded.denonSound && typeof loaded.denonSound === 'object') denonSoundSettings = loaded.denonSound;
   if (typeof loaded.infoShowMs === 'number' && loaded.infoShowMs >= 1000 && loaded.infoShowMs <= 60000) infoShowMs = loaded.infoShowMs;
   if (typeof loaded.infoDelayMs === 'number' && loaded.infoDelayMs >= 0 && loaded.infoDelayMs <= 10000) infoDelayMs = loaded.infoDelayMs;
   if (loaded.infoLayout === 'banner') infoLayout = 'banner';
@@ -120,7 +124,7 @@ function saveSettings() {
     shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE !== 'yamaha' ? AMP_TYPE : undefined,
       infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined,
       volFontSize: volFontSize !== 100 ? volFontSize : undefined, infoFontSize: infoFontSize !== 100 ? infoFontSize : undefined,
-      plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined }, null, 1)); // 0600: may hold the Plex token / Jellyfin API key
+      plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined, denonSound: denonSoundSettings || undefined }, null, 1)); // 0600: may hold the Plex token / Jellyfin API key
   } catch (e) { log('settings save failed: ' + e.message); }
 }
 var infoTimer = null, signalInFlight = false, tvPinned = false; // tvPinned: info bar held on screen (reported by the app)
@@ -228,7 +232,7 @@ function inputLabel(id) {
 }
 // the receiver input the TV's sound arrives on (default audio1, the eARC/ARC input)
 function tvInputId() {
-  if (!isYamaha()) return 'TV'; // Denon: the TV's eARC/ARC sound arrives on the "TV Audio" input (SI code TV)
+  if (!isYamaha()) return (denonSoundSettings && denonSoundSettings.tvInput) || 'TV'; // Denon: the TV's eARC/ARC sound arrives on the "TV Audio" input (SI code TV)
   return (soundSettings && soundSettings.tvInput) || 'audio1';
 }
 
@@ -522,7 +526,7 @@ function applySettings(v) {
   if (v.hiddenRows !== undefined) hiddenRows = v.hiddenRows;
   if (typeof v.volFontSize === 'number' && v.volFontSize >= 50 && v.volFontSize <= 200) volFontSize = v.volFontSize;
   if (typeof v.infoFontSize === 'number' && v.infoFontSize >= 50 && v.infoFontSize <= 200) infoFontSize = v.infoFontSize;
-  if (v.sound) soundSettings = v.sound;
+  if (v.sound) setSoundStore(v.sound);
   if (newPlex) { plexSettings = newPlex; legacyPlex.at = 0; }
   if (newJellyfin) jellyfinSettings = newJellyfin;
   saveSettings();
@@ -542,8 +546,16 @@ var profiles = require('./profiles.js')({
   ampGet: function (path, cb) { ampGet(path, null, cb); },
   log: log,
   luna: LUNA,
-  getSound: function () { return soundSettings; },
-  setSound: function (o) { soundSettings = o; saveSoon(); },
+  getSound: soundStore,
+  setSound: function (o) { if (isYamaha()) soundSettings = o; else { o.amp = 'denon'; denonSoundSettings = o; } saveSoon(); },
+  ampType: function () { return AMP_TYPE; },
+  denonState: function () { return ampDriver ? ampDriver.state() : null; },
+  // read Deviceinfo and send MS commands over the web API (port 8080 also when the telnet driver is used)
+  denonHttp: function (path, cb) {
+    var port = AMP_TYPE === 'denon-http' ? ampPortFor() : 8080;
+    if (!AMP_HOST) return cb(new Error('no receiver address'));
+    denon.httpGet(AMP_HOST, port, path, cb);
+  },
   getPlexApp: function () { return state.plexApp || null; },
   inputLabel: inputLabel,
   onForeground: onForegroundChange,
@@ -553,7 +565,7 @@ var profiles = require('./profiles.js')({
 var setupHandler = require('./setup.js')({
   log: log,
   profiles: profiles,
-  getSound: function () { return soundSettings; },
+  getSound: soundStore,
   corners: CORNERS,
   volumeModes: VOLUME_MODES,
   getSettings: function () {

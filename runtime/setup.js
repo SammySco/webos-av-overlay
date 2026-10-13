@@ -71,10 +71,12 @@ module.exports = function createSetup(ctx) {
       if (!kind) kind = 'any'; // rules saved before source types existed keep matching every source until changed
       return { app: r.app, kind: kind, program: r.program, decoder: r.decoder };
     });
+    var dn = L.amp === 'denon';
     var data = JSON.stringify({
-      programs: L.programs, decoders: L.decoders, inputs: L.inputs, choices: L.choices,
-      sound: { enabled: !!sound.enabled, tvInput: sound.tvInput || 'audio1', appInput: sound.appInput || '',
-        default: sound.default || null, rules: rulesForPage, seen: sound.seen || [] }
+      amp: dn ? 'denon' : 'yamaha', programs: L.programs, programLabels: L.programLabels || null, decoders: L.decoders,
+      inputs: L.inputs, inputLabels: L.inputLabels || null, choices: L.choices,
+      sound: { enabled: !!sound.enabled, tvInput: sound.tvInput || (dn ? 'TV' : 'audio1'), appInput: sound.appInput || '',
+        default: sound.default !== undefined ? sound.default : (dn ? { program: 'AUTO' } : null), rules: rulesForPage, seen: sound.seen || [] }
     }).replace(/</g, '\\u003c');
     var volNames = { numeric: 'Numeric', db: 'Decibels (dB)' };
     var volModes = ctx.volumeModes.map(function (m) {
@@ -110,7 +112,7 @@ module.exports = function createSetup(ctx) {
       '<details><summary>' + ico('chev') + ico('amp') + 'Receiver</summary><label for="ampType">Type</label><select id="ampType">' +
       [['yamaha', 'Yamaha (MusicCast / Extended Control)'], ['denon', 'Denon / Marantz - telnet, port 23 (instant; only one client allowed)'], ['denon-http', 'Denon / Marantz - web API polling, port 8080 (works alongside Home Assistant)']]
         .map(function (t) { return '<option value="' + t[0] + '"' + ((s.ampType || 'yamaha') === t[0] ? ' selected' : '') + '>' + esc(t[1]) + '</option>'; }).join('') +
-      '</select><p>Port: Yamaha 80, Denon telnet 23, Denon web 8080 (80 is treated as "use the default"). Sound program rules, audio signal and now-playing details are Yamaha only.</p>' +
+      '</select><p>Port: Yamaha 80, Denon telnet 23, Denon web 8080 (80 is treated as "use the default"). Audio signal and now-playing details are Yamaha only; per-app sound rules work for both (save and reload after changing the type).</p>' +
       '<div class="row"><div><label for="ampHost">IP address or hostname</label>' +
       '<input id="ampHost" type="text" value="' + esc(s.ampHost) + '" placeholder="e.g. 192.168.1.50" autocomplete="off"></div>' +
       '<div class="narrow"><label for="ampPort">Port</label><input id="ampPort" type="number" min="1" max="65535" value="' + esc(s.ampPort) + '"></div></div>' +
@@ -151,9 +153,10 @@ module.exports = function createSetup(ctx) {
         var checked = (s.hiddenRows || []).indexOf(k) < 0;
         return '<label><input type="checkbox" class="rowVis" value="' + k + '"' + (checked ? ' checked' : '') + '> ' + l + '</label>';
       }).join('') + '</div>' +
-      '</details><details><summary>' + ico('chev') + ico('sound') + 'Sound program per app (Yamaha)</summary>' +
-      '<p>Choose the receiver sound program for each app or input. LG apps (installed on this TV), Live TV and HDMI inputs are detected on the TV; Apple TV apps are sent by Home Assistant (see docs/HOME-ASSISTANT.md). A rule picked as an LG app only applies to the LG app, and one picked as an Apple TV app only to the Apple TV, so the two Netflix entries can differ. The receiver is only changed while it is on the input below.</p>' +
-      '<div class="check"><input id="sEnabled" type="checkbox"><label for="sEnabled" style="margin:0">Switch the sound program automatically</label></div>' +
+      '</details><details><summary>' + ico('chev') + ico('sound') + (dn ? 'Surround mode per app (Denon' + (L.model ? ' ' + esc(L.model) : '') + ')' : 'Sound program per app (Yamaha)') + '</summary>' +
+      (dn ? '<p>Choose the Denon surround mode for each app or input. The receiver picks a decoder that suits the signal (Movie on a Dolby source plays Dolby Surround, and so on); Auto lets it decide. Modes are sent over the web API, so this works while Home Assistant holds the telnet connection. The mode is only changed while the receiver is on the input below, except for rules for the receiver\'s own sources.</p>' : '') +
+      '<p' + (dn ? ' style="display:none"' : '') + '>Choose the receiver sound program for each app or input. LG apps (installed on this TV), Live TV and HDMI inputs are detected on the TV; Apple TV apps are sent by Home Assistant (see docs/HOME-ASSISTANT.md). A rule picked as an LG app only applies to the LG app, and one picked as an Apple TV app only to the Apple TV, so the two Netflix entries can differ. The receiver is only changed while it is on the input below.</p>' +
+      '<div class="check"><input id="sEnabled" type="checkbox"><label for="sEnabled" style="margin:0">' + (dn ? 'Switch the surround mode automatically' : 'Switch the sound program automatically') + '</label></div>' +
       '<div class="row stack"><div><label for="sTv">Receiver input the TV is on</label><select id="sTv"></select></div>' +
       '<div><label for="sAppIn">Input the Apple TV is on</label><select id="sAppIn"></select></div></div>' +
       '<label>Default when no rule matches</label><div class="row stack"><div><select id="dProg"></select></div><div><select id="dDec"></select></div></div>' +
@@ -168,13 +171,13 @@ module.exports = function createSetup(ctx) {
       '<script type="application/json" id="data">' + data + '</script>' +
       '<script>(function(){function $(i){return document.getElementById(i)}var D=JSON.parse($("data").textContent),msg=$("msg");' +
       'function say(t,ok){msg.textContent=t;msg.className=ok?"ok":"bad"}' +
-      'function pretty(p){return p.split("_").join(" ")}' +
+      'function pretty(p){return (D.programLabels&&D.programLabels[p])||p.split("_").join(" ")}' +
       'function opt(sel,v,label,cur){var o=document.createElement("option");o.value=v;o.textContent=label;if(v===cur)o.selected=true;sel.appendChild(o)}' +
       'function fillProg(sel,cur){opt(sel,"","(leave unchanged)",cur||"");D.programs.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +
       'function fillDec(sel,cur){opt(sel,"","(no change)",cur||"");D.decoders.forEach(function(p){opt(sel,p,pretty(p),cur)})}' +
-      'function sync(ps,ds){ds.disabled=ps.value!=="surr_decoder"}' +
+      'function sync(ps,ds){ds.disabled=ps.value!=="surr_decoder";if(!D.decoders.length)ds.style.display="none"}' +
       'var S=D.sound,inputs=D.inputs.length?D.inputs.slice():["audio1","audio2","audio3","hdmi1","hdmi2","hdmi3","hdmi4"];' +
-      'if(inputs.indexOf(S.tvInput)<0)inputs.push(S.tvInput);inputs.forEach(function(i){opt($("sTv"),i,i,S.tvInput)});' +
+      'if(inputs.indexOf(S.tvInput)<0)inputs.push(S.tvInput);inputs.forEach(function(i){opt($("sTv"),i,(D.inputLabels&&D.inputLabels[i]&&D.inputLabels[i]!==i)?D.inputLabels[i]+" ("+i+")":i,S.tvInput)});' +
       'opt($("sAppIn"),"","any HDMI input",S.appInput);["HDMI 1","HDMI 2","HDMI 3","HDMI 4"].forEach(function(h){opt($("sAppIn"),h,h,S.appInput)});' +
       '$("sEnabled").checked=S.enabled;fillProg($("dProg"),S.default&&S.default.program);fillDec($("dDec"),S.default&&S.default.decoder);' +
       '$("dProg").onchange=function(){sync($("dProg"),$("dDec"))};sync($("dProg"),$("dDec"));' +
@@ -192,7 +195,7 @@ module.exports = function createSetup(ctx) {
       '  group("HDMI inputs","input",C.inputs.filter(function(x){return x.value!=="Live TV"}),"inputs");' +
       '  group("LG apps (installed on this TV)","lg",C.tvApps,"lg");' +
       '  group("Apple TV apps (sent by Home Assistant)","atv",C.atv,"atv");' +
-      '  group("Receiver\'s own sources (TIDAL, net radio, ...)","amp",C.amp,"amp");group("Seen recently (any source)","any",C.seen);' +
+      '  group(D.amp==="denon"?"Receiver\'s own sources":"Receiver\'s own sources (TIDAL, net radio, ...)","amp",C.amp,"amp");group("Seen recently (any source)","any",C.seen);' +
       '  if(cur&&cur!=="__other"&&!have[cur.toLowerCase()]){var g=document.createElement("optgroup");g.label="Current rule";var i=cur.indexOf("|");add(g,cur.slice(0,i),cur.slice(i+1),cur.slice(i+1));as.appendChild(g)}' +
       '  var oo=document.createElement("option");oo.value="__other";oo.textContent="Other (type a name)...";as.appendChild(oo);' +
       '  as.value=cur||""}' +
