@@ -36,21 +36,33 @@ conditions: []
 actions:
   - variables:
       atv: media_player.apple_tv
-  - if:
-      - condition: template
-        value_template: "{{ not is_state(atv, ['playing', 'paused']) }}"
-    then:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_state(atv, ['playing', 'paused']) }}"
+        sequence:
+          - action: rest_command.av_overlay_app
+            data:
+              name: "{{ state_attr(atv, 'app_name') | default('', true) }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ is_state(atv, ['off', 'standby', 'unavailable', 'unknown']) }}"
+        sequence:
+          - wait_template: "{{ is_state(atv, ['playing', 'paused']) }}"
+            timeout: "00:01:30"
+            continue_on_timeout: true
+          - condition: template
+            value_template: "{{ not is_state(atv, ['playing', 'paused']) }}"
+          - action: rest_command.av_overlay_app
+            data:
+              name: ""
+    default:
       - wait_template: "{{ is_state(atv, ['playing', 'paused']) }}"
         timeout: "00:01:30"
         continue_on_timeout: true
-  - action: rest_command.av_overlay_app
-    data:
-      name: >-
-        {{ state_attr(atv, 'app_name') | default('', true)
-           if is_state(atv, ['playing', 'paused']) else '' }}
 ```
 
-An empty name clears the app. When the Apple TV is not playing or paused the automation waits for it to start (and carries on at once when it does), and only sends the empty name if it stays idle for 90 seconds. That stops short gaps, such as buffering or a screen change, from clearing the app and making the receiver flip to its default program and back, without delaying a real app change. If you put this in `automations.yaml` directly, make it a list item: start with
+An empty name clears the app, and it is only sent when the Apple TV is off, asleep or unavailable for 90 seconds. While it is `idle` (which is what a long pause or the home screen looks like) the last app is kept, so pausing Netflix does not drop the App row, reset the sound program or re-pop the bar. The watcher still forgets a pushed name after 12 hours. If you put this in `automations.yaml` directly, make it a list item: start with
 `- id: '<any unique id>'` and indent everything else by two spaces.
 On older Home Assistant versions use `platform:` and `service:` in place of `trigger:`/`action:`.
 

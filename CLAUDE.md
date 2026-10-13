@@ -57,7 +57,7 @@ for release candidates, tagging and the checks to run after a tag.
 - Log: `/tmp/earc-volume-overlay.log` (dedupes repeats, rotates at 256 KB).
 - Code layout (`runtime/`): `watcher.js` (main), `profiles.js` (sound rules), `setup.js` (/setup), `configure.js`
   (installer helper), `shared.js` (constants, helpers, app version), `orphan.js` (self-cleanup after the app is
-  removed from the TV). New runtime files must be added to the `cp` line in `scripts/package.sh` (Docker copies all of
+  removed from the TV), `logs.js` (the `/logs` page). New runtime files must be added to the `cp` line in `scripts/package.sh` (Docker copies all of
   `runtime/`).
 - Removal: webOS has no uninstall hook, so the watcher notices its own folder is gone (3 misses, about 90 s), removes
   its boot hook, pid files and state folder and exits; settings are kept (`scripts/uninstall.sh --purge` deletes them).
