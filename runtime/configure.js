@@ -27,7 +27,7 @@ function plexNow(settings) {
 function get() {
   var s = readJson(SETTINGS_FILE), p = plexNow(s);
   [['ampType', s.ampType || 'yamaha'], ['ampHost', s.ampHost || ''], ['ampPort', s.ampPort || ''], ['corner', s.corner || ''],
-    ['autoInfo', s.autoInfo === false ? 'off' : 'on'], ['plexUrl', p ? p.url : ''],
+    ['autoInfo', s.autoInfo === false ? 'off' : 'on'], ['tvAudio', s.tvAudio === true ? 'on' : 'off'], ['plexUrl', p ? p.url : ''],
     ['plexPlayer', p && p.player_ip ? p.player_ip : ''], ['plexTokenSet', p ? 'yes' : 'no']]
     .forEach(function (kv) { console.log(kv[0] + '=' + kv[1]); });
 }
@@ -39,7 +39,8 @@ function set(input) {
     if (i > 0) v[line.slice(0, i).trim()] = line.slice(i + 1).replace(/\r$/, '');
   });
   var s = readJson(SETTINGS_FILE);
-  if (v.ampHost !== undefined && v.ampHost !== '') {
+  if (v.ampClear === 'yes') delete s.ampHost; // no receiver: the info bar then shows only what the TV knows
+  else if (v.ampHost !== undefined && v.ampHost !== '') {
     if (!HOST_RE.test(v.ampHost)) { console.error('invalid amp host'); process.exit(2); }
     s.ampHost = v.ampHost;
   }
@@ -57,6 +58,7 @@ function set(input) {
     s.corner = v.corner;
   }
   if (v.autoInfo === 'on' || v.autoInfo === 'off') s.autoInfo = v.autoInfo === 'on';
+  if (v.tvAudio === 'on' || v.tvAudio === 'off') s.tvAudio = v.tvAudio === 'on';
   if (v.plexClear === 'yes') s.plex = { disabled: true };
   else if (v.plexUrl) {
     var cur = plexNow(s);

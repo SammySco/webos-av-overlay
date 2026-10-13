@@ -132,6 +132,8 @@ module.exports = function createSetup(ctx) {
       '<input id="jellyfinDevice" type="text" value="' + esc(s.jellyfinDevice) + '" placeholder="e.g. Infuse, Apple TV" autocomplete="off">' +
       '</details><details><summary>' + ico('chev') + ico('display') + 'Display</summary><div class="check"><input id="autoInfo" type="checkbox"' + (s.autoInfo ? ' checked' : '') + '>' +
       '<label for="autoInfo" style="margin:0">Show the info bar by itself when the stream or amp info changes</label></div>' +
+      '<div class="check"><input id="tvAudio" type="checkbox"' + (s.tvAudio ? ' checked' : '') + '>' +
+      '<label for="tvAudio" style="margin:0">Show &quot;Audio (TV)&quot;: the audio format, channels and rate the TV itself sees on its input (works without a receiver)</label></div>' +
       '<label for="corner">Info bar position</label><select id="corner">' + corners + '</select>' +
       '<label for="volMode">Volume number</label><select id="volMode">' + volModes + '</select>' +
       (function(){var sz=[75,100,125,150],nm={75:'Small',100:'Normal',125:'Large',150:'XL'};
@@ -148,7 +150,7 @@ module.exports = function createSetup(ctx) {
       '<div><label for="iDelay">Appear delay (seconds)</label><input id="iDelay" type="number" min="0" max="10" step="1" value="' + esc(Math.round((s.infoDelayMs !== undefined ? s.infoDelayMs : 1000) / 1000)) + '"></div></div>' +
       '<label>Rows shown on the info bar</label>' +
       '<div class="filters">' +
-      ['program:Sound program', 'source:Source', 'app:App', 'audio:Audio (amp)', 'plex:Plex', 'jellyfin:Jellyfin', 'processing:Processing', 'video:Video', 'colour:Colour'].map(function (kl) {
+      shared.ROW_KEYS.map(function (k) { return k + ':' + shared.ROW_LABELS[k]; }).map(function (kl) {
         var k = kl.split(':')[0], l = kl.split(':')[1];
         var checked = (s.hiddenRows || []).indexOf(k) < 0;
         return '<label><input type="checkbox" class="rowVis" value="' + k + '"' + (checked ? ' checked' : '') + '> ' + l + '</label>';
@@ -222,7 +224,7 @@ module.exports = function createSetup(ctx) {
       'return{enabled:$("sEnabled").checked,tvInput:$("sTv").value,appInput:$("sAppIn").value,default:{program:$("dProg").value,decoder:$("dDec").value},rules:rules}}' +
       'function body(){var b={ampType:$("ampType").value,ampHost:$("ampHost").value.trim(),ampPort:$("ampPort").value,plexUrl:$("plexUrl").value.trim(),plexToken:$("plexToken").value,' +
       'plexPlayer:$("plexPlayer").value.trim(),jellyfinUrl:$("jellyfinUrl").value.trim(),jellyfinApiKey:$("jellyfinApiKey").value,' +
-      'jellyfinDevice:$("jellyfinDevice").value.trim(),autoInfo:$("autoInfo").checked,corner:$("corner").value,volumeDisplay:$("volMode").value,' +
+      'jellyfinDevice:$("jellyfinDevice").value.trim(),autoInfo:$("autoInfo").checked,tvAudio:$("tvAudio").checked,corner:$("corner").value,volumeDisplay:$("volMode").value,' +
       'infoLayout:$("iLayout").value,infoShowMs:Math.round(Number($("iShow").value))*1000,infoDelayMs:Math.round(Number($("iDelay").value))*1000,' +
       'volFontSize:Number($("volFont").value),infoFontSize:Number($("infoFont").value),' +
       'hiddenRows:Array.prototype.filter.call(document.querySelectorAll(".rowVis"),function(c){return !c.checked}).map(function(c){return c.value}),' +
@@ -335,6 +337,7 @@ module.exports = function createSetup(ctx) {
       out.infoFontSize = ifs;
     }
     if (b.autoInfo !== undefined) out.autoInfo = !!b.autoInfo;
+    if (b.tvAudio !== undefined) out.tvAudio = !!b.tvAudio;
     if (b.volumeDisplay !== undefined) {
       if (ctx.volumeModes.indexOf(b.volumeDisplay) < 0) return { error: 'Unknown volume display' };
       out.volumeDisplay = b.volumeDisplay;

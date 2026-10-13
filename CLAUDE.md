@@ -27,7 +27,20 @@ for release candidates, tagging and the checks to run after a tag.
 - Info bar (stacked left-justified lines; appears 1 s after a change, shows 5 s; the app closes itself when nothing is
   showing, so Show is a cold start; no fades): sound program (and decoder), source, receiver audio (format, rate, bit
   depth, bitrate), Plex or Jellyfin stream, receiver processing, video (size, rate, HDR) and colour. "---" readings
-  while HDMI re-locks are ignored.
+  while HDMI re-locks are ignored. Every line starts with its label ("Video: ..."). Each row has an on/off switch and
+  a drag handle on the `/status` page (`GET /tv/row?k=<key>&v=0|1`, `GET /tv/order?o=<keys>`, stored as `hiddenRows` and
+  `rowOrder`; `/setup` has the same checklist); the order drives the bar as well. Sound program and Volume are rows like
+  the others. A volume change only shows the volume popup, but while the bar is up its Volume line is updated in place.
+- TV-only mode: with no receiver address (`!AMP_HOST`) the bar and `/status` show only the TV-side rows (Source, App,
+  Audio (TV), Plex, Jellyfin, Video, Colour), with no "Receiver not responding" title. A receiver that is set but not
+  answering behaves as before. The installers skip the receiver on Enter (`none` removes a saved one; `EARC_AMP_HOST=none`
+  or `-AmpHost none` when scripted; `configure.js set` takes `ampClear=yes` and `tvAudio=on|off`), and ask about
+  Audio (TV) (`EARC_TV_AUDIO`), suggesting on when there is no receiver. Or clear it at `/setup`. Tested in a vm sandbox
+  only, not yet on a TV without a receiver; `install.ps1` is parse-checked, not run.
+- Optional "Audio (TV)" row (`tvAudio` setting, off by default): the TV's own view of its input. On HDMI it reads
+  `luna://com.webos.service.extinputs.hdmi/getHDMIDiagnosticsInfo` (needs the `pipelineId` from
+  `luna://com.webos.service.audio/tv/getAudioInputProperty`; the bus name without `.hdmi` hangs) and shows codec,
+  channels and rate, for example "PCM · 8 ch · 48 kHz"; elsewhere (Live TV, LG apps) only the codec.
 - The source row shows the TV's custom input name; the app row shows "<App> on Apple TV" or "<App> on LG TV".
 - Page title and Android title: "<TV device name> - AV Info" (fetched from settingsservice at startup and every 10
   minutes; fallback "AV Info"). The status and setup pages show `AV Overlay v<version>` at the bottom.
@@ -44,7 +57,7 @@ for release candidates, tagging and the checks to run after a tag.
 - Log: `/tmp/earc-volume-overlay.log` (dedupes repeats, rotates at 256 KB).
 - Code layout (`runtime/`): `watcher.js` (main), `profiles.js` (sound rules), `setup.js` (/setup), `configure.js`
   (installer helper), `shared.js` (constants, helpers, app version), `orphan.js` (self-cleanup after the app is
-  removed from the TV). New runtime files must be added to the `cp` line in `scripts/package.sh` (Docker copies all of
+  removed from the TV), `logs.js` (the `/logs` page). New runtime files must be added to the `cp` line in `scripts/package.sh` (Docker copies all of
   `runtime/`).
 - Removal: webOS has no uninstall hook, so the watcher notices its own folder is gone (3 misses, about 90 s), removes
   its boot hook, pid files and state folder and exits; settings are kept (`scripts/uninstall.sh --purge` deletes them).
@@ -59,7 +72,11 @@ for release candidates, tagging and the checks to run after a tag.
   receiver is switched to the TV input. It does not fire if the receiver's own Spotify input is playing.
 
 ## Known limits (don't retry)
-- The receiver and the TV never report an audio channel count (an Apple TV decodes to PCM); only Plex can.
+- The receiver never reports an audio channel count, and the TV reports only the HDMI transport's (an Apple TV
+  decodes to PCM and sends 5.1 as 8 channels, so 5.1 and 7.1 look alike); only Plex gives the real stream layout.
+- The Magic Remote pointer cannot click items on an HDMI input (the Apple TV only gets key presses over CEC). The
+  overlay app keeps a 1x1 input region and ignores key codes 1536 and up (pointer activity); an empty region left the
+  full-screen overlay swallowing the pointer over native apps.
 - The original settings app is denied `exec` by Luna ACG; a "LG Input Hook" is blocked by glibc 2.34 or newer;
   `/dev/input` is exclusively grabbed by lginput2.
 - The YouTube tvOS app often does not report now-playing to Home Assistant.

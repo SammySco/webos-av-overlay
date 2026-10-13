@@ -9,6 +9,17 @@ Yamaha receivers and which LG TVs it is expected to work with.
 combination, please send a
 [compatibility report](https://github.com/SammySco/webos-av-overlay/issues/new?template=compatibility_report.yml).
 
+## Without a Yamaha receiver (TV-only info bar)
+
+The receiver is only needed for the volume popup, the sound program, the receiver's audio and processing lines and the
+per-app sound rules. The TV-side rows of the info bar (Source, App, **Audio (TV)**, Plex or Jellyfin, Video, Colour)
+come from the TV and work with any receiver brand or none; leave the receiver address empty. **Audio (TV)** is the TV's
+own view of its input: on HDMI the codec, channel count and sample rate (read from the TV's HDMI diagnostics, the data
+behind the hidden "HDMI status" menu), and on Live TV and LG apps the codec only. See the README section
+"Using it without a Yamaha receiver". Status: Audio (TV) is confirmed on the LG C2 above (Apple TV on HDMI, Live TV,
+native Netflix); the TV-only layout of the bar has been tested in code but not yet on a TV with no receiver, and other
+LG models may differ. Reports are welcome, especially from non-Yamaha setups.
+
 ## Yamaha receivers
 
 The overlay needs the receiver's JSON Extended Control API (`/YamahaExtendedControl/v1`) and its UDP event

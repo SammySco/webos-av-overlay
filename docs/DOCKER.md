@@ -250,7 +250,8 @@ Open the setup page in any browser:
 http://192.168.1.5:41101/setup
 ```
 
-Enter the Yamaha receiver's IP address and click **Save**.  The status page
+Enter the Yamaha receiver's IP address and click **Save**.  (Leave it empty for a TV-only info bar without a
+receiver; see the README section "Using it without a Yamaha receiver".)  The status page
 at `http://192.168.1.5:41101/status` should soon show the current sound
 program and volume.
 
@@ -396,6 +397,7 @@ If that fails, check:
 | Plex session details | watcher → HTTP → Plex server |
 | Jellyfin session details | watcher → HTTP → Jellyfin server |
 | TV video/source info | watcher → SSH → `luna-send -i` subscribe on TV |
+| Audio (TV) row (optional) | watcher → SSH → `luna-send` on TV (`audio/tv/getAudioInputProperty`, and on HDMI `extinputs.hdmi/getHDMIDiagnosticsInfo`) every 10 s while on |
 | Foreground app / running apps | watcher → SSH → `luna-send -i` subscribe on TV (15 s and 10 s safety polls) |
 | Pin-state / key forwarding | WebOS app → HTTP → `WATCHER_URL:41101` |
 | Settings page | any browser → `http://<docker-host>:41101/setup` |

@@ -29,6 +29,7 @@ var SETTLE_MS = 2000;      // wait for the input to settle after a change, as th
 var FOREGROUND_POLL_MS = 15000; // safety net only: the foreground app arrives by subscription
 var GUARD_MS = 2000;
 var PUSHED_TTL_MS = 12 * 60 * 60 * 1000; // a pushed Apple TV app name is forgotten after this long without a refresh
+var PUSHED_FILE = '/tmp/earc-pushed-app.json'; // survives a watcher restart (not a TV reboot), so a redeploy does not forget the app
 var SEEN_MAX = 40;
 var RULES_MAX = 40;
 var IGNORED_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.livedmost', 'com.sammysco.avoverlay',
@@ -38,6 +39,7 @@ var IGNORED_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.a
 module.exports = function createProfiles(ctx) {
   var features = null, featuresAt = 0;
   var pushed = null;                 // {name, at}
+  try { var saved = JSON.parse(require('fs').readFileSync(PUSHED_FILE, 'utf8')); if (saved && saved.name && Date.now() - saved.at < PUSHED_TTL_MS) pushed = { name: String(saved.name), at: saved.at }; } catch (e) {}
   var fg = { id: null, title: null };
   var titles = {}, titlesAt = 0;     // launch point id -> title
   var tvApps = [], inputNames = {};  // installed webOS app titles, custom input names ('HDMI 1' -> 'Apple TV')
@@ -350,6 +352,7 @@ module.exports = function createProfiles(ctx) {
   function push(name) {
     name = String(name || '').trim().slice(0, 60);
     pushed = name ? { name: name, at: Date.now() } : null;
+    try { shared.writeFileAtomic(PUSHED_FILE, JSON.stringify(pushed || {}), 0o600); } catch (e) {}
     ctx.log('app pushed: ' + (name || '(cleared)'));
     if (name) rememberSeen(name);
     noteContext();

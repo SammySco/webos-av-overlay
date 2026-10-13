@@ -10,6 +10,7 @@ var dgram = require('dgram');
 var execFile = require('child_process').execFile;
 var fs = require('fs');
 var shared = require('./shared.js');
+shared.reapOrphanSubscriptions(); // helpers left by an earlier watcher that was killed hard
 
 // Settings live in SETTINGS_FILE (written by the installer and the /setup page); environment variables are fallbacks.
 var AMP_HOST = process.env.EARC_AMP_HOST || '';
@@ -64,12 +65,14 @@ var COLOUR = { dcip3d65: 'DCI-P3 D65', dcip3theater: 'DCI-P3', bt2020: 'BT.2020'
 var lastVolume = null, lastError = null, inFlight = false, refetch = false;
 var progKey = null, audioKey = null, videoKey = null;
 var profiles = null;
-var state = { tvName: null, lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null, jellyfin: null,
+var state = { tvName: null, lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, tvAudio: null, video: null, colour: null, source: null, processing: null, plex: null, jellyfin: null,
   volume: null, mute: false, updated: null };
 var plexAnn = shared.mediaAnnouncer(), plexInFlight = false;
 var jellyfinAnn = shared.mediaAnnouncer(), jellyfinInFlight = false;
 var procKey = null;
 var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
+var pinWanted = false;  // the Show on TV switch was on when the watcher last ran: put the bar back after a restart or reboot
+var tvAudio = false; // show the TV's own view of the incoming audio ("Audio (TV)"); off by default
 var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
 var CORNERS = shared.CORNERS;
 var corner = 'top-left';   // where the info bar sits (the volume popup is bottom-right)
@@ -77,6 +80,7 @@ var infoShowMs = 5000;     // how long the info bar stays visible (ms)
 var infoDelayMs = 1000;    // delay before it appears after a change (ms)
 var infoLayout = 'stack';  // 'stack' (one row per line) or 'banner' (single horizontal line)
 var hiddenRows = [];       // row keys to suppress: any of ROW_KEYS
+var rowOrder = [];         // row keys in the order chosen on /status (any missing ones follow in the default order)
 var VOLUME_MODES = ['numeric', 'db'];
 var volumeDisplay = 'numeric'; // how the volume number is written: the receiver's numeric scale (0-97) or decibels
 var volFontSize = 100;   // volume number font size as % of base (82px)
@@ -90,6 +94,8 @@ var jellyfinSettings = null; // {url, apiKey, deviceName} — apiKey is private:
 try {
   var loaded = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
   autoInfo = loaded.autoInfo !== false;
+  tvAudio = loaded.tvAudio === true;
+  pinWanted = loaded.pinOnTv === true;
   if (CORNERS.indexOf(loaded.corner) >= 0) corner = loaded.corner;
   var _vd = loaded.volumeDisplay;
   if (_vd === 'amp' || _vd === 'percent' || _vd === 'percent1') _vd = 'numeric'; // migrate old values
@@ -105,6 +111,7 @@ try {
   if (typeof loaded.infoDelayMs === 'number' && loaded.infoDelayMs >= 0 && loaded.infoDelayMs <= 10000) infoDelayMs = loaded.infoDelayMs;
   if (loaded.infoLayout === 'banner') infoLayout = 'banner';
   if (Array.isArray(loaded.hiddenRows)) hiddenRows = loaded.hiddenRows.filter(function (r) { return ROW_KEYS.indexOf(r) >= 0; });
+  if (Array.isArray(loaded.rowOrder)) rowOrder = loaded.rowOrder.filter(function (r, i, a) { return ROW_KEYS.indexOf(r) >= 0 && a.indexOf(r) === i; });
   if (typeof loaded.volFontSize === 'number' && loaded.volFontSize >= 50 && loaded.volFontSize <= 200) volFontSize = loaded.volFontSize;
   if (typeof loaded.infoFontSize === 'number' && loaded.infoFontSize >= 50 && loaded.infoFontSize <= 200) infoFontSize = loaded.infoFontSize;
 } catch (e) {
@@ -121,8 +128,8 @@ function saveSoon() { // for frequent, unimportant changes (the "seen apps" list
 function saveSettings() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   try {
-    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE !== 'yamaha' ? AMP_TYPE : undefined,
-      infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined,
+    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, pinOnTv: tvPinned || undefined, tvAudio: tvAudio || undefined, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE !== 'yamaha' ? AMP_TYPE : undefined,
+      infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined, rowOrder: rowOrder.length ? rowOrder : undefined,
       volFontSize: volFontSize !== 100 ? volFontSize : undefined, infoFontSize: infoFontSize !== 100 ? infoFontSize : undefined,
       plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined, denonSound: denonSoundSettings || undefined }, null, 1)); // 0600: may hold the Plex token / Jellyfin API key
   } catch (e) { log('settings save failed: ' + e.message); }
@@ -288,21 +295,38 @@ function reachTick() {
 }
 setInterval(reachTick, 1000);
 
+function orderedKeys() { // every row key, in the order set on /status (keys it does not mention keep their default order, after the others)
+  return rowOrder.concat(ROW_KEYS.filter(function (k) { return rowOrder.indexOf(k) < 0; }));
+}
+function lab(k, text) { return text && hiddenRows.indexOf(k) < 0 ? shared.ROW_LABELS[k] + ': ' + text : null; } // one bar line: "Video: 3840x2160p ...", or null when empty or hidden
 function launchInfo(pin) {
   var al = appLabel();
   var up = ampReachable();
-  var hide = {};
-  hiddenRows.forEach(function (r) { hide[r] = true; });
-  var segs = !up
-    ? [lastSeenText(), hide.source ? null : sourceLabel(), hide.app ? null : (al ? 'App: ' + al : null), hide.video ? null : state.video, hide.colour ? null : state.colour]
-    : (state.ampLocal
-      ? [inputLabel(state.ampInput), state.nowPlaying, hide.audio ? null : state.audio, hide.processing ? null : state.processing]
-      : [hide.source ? null : sourceLabel(), hide.app ? null : (al ? 'App: ' + al : null), hide.audio ? null : state.audio, hide.plex ? null : state.plex, hide.jellyfin ? null : state.jellyfin, hide.processing ? null : state.processing, hide.video ? null : state.video, hide.colour ? null : state.colour]);
-  segs = segs.filter(function (x) { return !!x; });
-  var title = hide.program ? '' : (up ? (state.program || 'Sound program') : 'Receiver not responding');
-  var params = { info: { title: title, segs: segs, showMs: infoShowMs, layout: infoLayout }, corner: corner, volFontSize: volFontSize, infoFontSize: infoFontSize };
-  log('info bar: ' + title + ' | ' + segs.join(' | '));
-  if (pin) { params.pin = true; tvPinned = true; overlayLost = false; }
+  var tva = tvAudio ? state.tvAudio : null;
+  var vol = up && state.volume !== null ? (state.mute ? 'Muted (' + (state.volumeText || state.volume) + ')' : String(state.volumeText || state.volume)) : null;
+  var plex = state.plex ? state.plex.replace(/^Plex: /, '') : null, jelly = state.jellyfin ? state.jellyfin.replace(/^Jellyfin: /, '') : null;
+  // fixed lines first, then the rest in the order chosen on /status; the title is only used for "Receiver not responding"
+  var head, by;
+  var tvOnly = !AMP_HOST; // no receiver set (for example a non-Yamaha setup): show what the TV, Plex and Jellyfin know, without receiver messages
+  if (!up) {
+    head = tvOnly ? [] : [lastSeenText()];
+    by = { source: lab('source', sourceLabel()), app: lab('app', al), tvaudio: lab('tvaudio', tva), plex: tvOnly ? lab('plex', plex) : null, jellyfin: tvOnly ? lab('jellyfin', jelly) : null,
+      video: lab('video', state.video), colour: lab('colour', state.colour) };
+  }
+  else if (state.ampLocal) {
+    head = [inputLabel(state.ampInput) ? 'Receiver input: ' + inputLabel(state.ampInput) : null, state.nowPlaying ? 'Now playing: ' + state.nowPlaying : null];
+    by = { program: lab('program', state.program), volume: lab('volume', vol), audio: lab('audio', state.audio), processing: lab('processing', state.processing) };
+  } else {
+    head = [];
+    by = { program: lab('program', state.program), volume: lab('volume', vol), source: lab('source', sourceLabel()), app: lab('app', al), audio: lab('audio', state.audio), tvaudio: lab('tvaudio', tva), plex: lab('plex', plex), jellyfin: lab('jellyfin', jelly),
+      processing: lab('processing', state.processing), video: lab('video', state.video), colour: lab('colour', state.colour) };
+  }
+  var segs = head.concat(orderedKeys().map(function (k) { return by[k]; })).filter(function (x) { return !!x; });
+  var title = up || tvOnly ? '' : 'Receiver not responding';
+  var volIdx = by.volume ? segs.indexOf(by.volume) : -1; // lets the app keep this line current when the volume changes while the bar is up
+  var params = { info: { title: title, segs: segs, showMs: infoShowMs, layout: infoLayout, volIdx: volIdx, volLabel: shared.ROW_LABELS.volume }, corner: corner, volFontSize: volFontSize, infoFontSize: infoFontSize };
+  log('info bar: ' + [title].concat(segs).filter(function (x) { return !!x; }).join(' | '));
+  if (pin) { params.pin = true; tvPinned = true; overlayLost = false; barFg = lastFg; }
   else if (tvPinned && overlayLost) return; // the Guide or another system screen closed the bar: do not pop up over it
   launch(params);
 }
@@ -327,6 +351,7 @@ function showInfoNow(via, pin) {
   launchInfo(pin);
   fetchStatus(false);
   fetchSignal();
+  fetchTvAudio();
   fetchPlex();
   fetchJellyfin();
   scheduleInfo('on demand refresh', 700, pin, true);
@@ -346,6 +371,7 @@ function hideInfo(via) {
 // a channel change (picked in the Guide) and then re-pinning restores it without popping up over the Guide itself.
 // The running-app list and the foreground app arrive by luna subscription; only the channel is polled, and only while the bar is away.
 var lostAt = 0, overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null;
+var barFg = null; // the foreground app when the pinned bar was last known to be on screen
 var QUIET_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.notification'];
 function scheduleRestore(why, ms) {
   if (restoreTimer) clearTimeout(restoreTimer);
@@ -357,7 +383,7 @@ function evaluateLost(prevFg) {
   // (something else, such as a system pop-up, closed the window).
   if (lastFg && lastFg.indexOf('com.webos.app.hdmi') === 0 && !restoreTimer) {
     log('bar vanished on ' + lastFg + ' with no input change; restoring it');
-    scheduleRestore('bar vanished', 2500);
+    scheduleRestore('bar vanished', 300);
   }
   // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
   // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
@@ -376,11 +402,12 @@ function onForegroundChange(id, prev) {
 function onRunning(j) {
   if (!tvPinned) { overlayLost = false; return; }
   if (!j) return;
-  if (JSON.stringify(j).indexOf('"' + APP_ID + '"') >= 0) { overlayLost = false; return; }
+  if (JSON.stringify(j).indexOf('"' + APP_ID + '"') >= 0) { overlayLost = false; barFg = lastFg; return; }
   if (overlayLost || Date.now() - lastLaunchAt < 3000) return; // a launch in progress is not yet in the list
   overlayLost = true; lostAt = Date.now();
   log('pinned bar went away (foreground ' + lastFg + '); waiting for a channel/app change');
-  evaluateLost(null);
+  // the foreground app can change before the running list does: compare with where the bar was last seen
+  evaluateLost(barFg);
 }
 function pollChannel() {
   if (!tvPinned || !overlayLost) { lastChannel = null; return; }
@@ -407,35 +434,46 @@ function esc(t) {
 
 function snapshot() {
   var up = ampReachable();
-  return { version: shared.APP_VERSION, tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
-    program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null,
+  return { version: shared.APP_VERSION, tvName: state.tvName, sourceLabel: sourceLabel(), reachable: up, receiverSet: !!AMP_HOST, lastOk: state.lastOk ? state.lastOk.toISOString() : null, receiverNote: up ? null : lastSeenText(),
+    program: up ? state.program : null, volume: up ? state.volume : null, mute: state.mute, source: state.source, audio: up ? state.audio : null, tvAudio: tvAudio ? state.tvAudio : null,
     plex: state.plex, jellyfin: state.jellyfin, processing: up ? state.processing : null, video: state.video, colour: state.colour, pinned: tvPinned, autoInfo: autoInfo, volumeText: up ? state.volumeText : null, ampInput: up ? state.ampInput : null, ampLocal: up && state.ampLocal, nowPlaying: up ? state.nowPlaying : null, app: profiles ? profiles.current().key : null, appKind: profiles ? profiles.current().kind : null, appLabel: appLabel(),
     updated: state.updated ? state.updated.toISOString() : null };
 }
 
+// Rows are [label, value, key, shown]: key is a ROW_KEYS name (the row can be switched on or off for the TV bar), shown is whether the
+// bar currently includes it; rows that are not on the bar have no key.
 function infoRows(d) {
-  if (d.reachable === false) { // withhold the receiver's numbers; show what the TV knows plus why they are missing
-    return [['Receiver', 'Not responding'], ['Last contact', d.receiverNote], ['Source', d.sourceLabel || d.source], ['App', d.appLabel], ['Video', d.video], ['Colour', d.colour]]
-      .filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
+  function R(key, v) { return [shared.ROW_LABELS[key], v, key, hiddenRows.indexOf(key) < 0]; }
+  var volume = d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume));
+  var rows;
+  if (d.reachable === false && d.receiverSet === false) { // no receiver configured: only what the TV, Plex and Jellyfin know
+    rows = [R('source', d.sourceLabel || d.source), R('app', d.appLabel), R('tvaudio', d.tvAudio), R('plex', d.plex ? d.plex.replace(/^Plex: /, '') : null),
+      R('jellyfin', d.jellyfin ? d.jellyfin.replace(/^Jellyfin: /, '') : null), R('video', d.video), R('colour', d.colour)];
+  } else if (d.reachable === false) { // withhold the receiver's numbers; show what the TV knows plus why they are missing
+    rows = [['Receiver', 'Not responding'], ['Last contact', d.receiverNote], R('source', d.sourceLabel || d.source), R('app', d.appLabel), R('tvaudio', d.tvAudio), R('video', d.video), R('colour', d.colour)];
+  } else if (d.ampLocal) { // the receiver is playing its own source: the TV's video and app details would be misleading
+    rows = [R('program', d.program), R('volume', volume), ['Receiver input', inputLabel(d.ampInput)], ['Now playing', d.nowPlaying], R('audio', d.audio), R('processing', d.processing)];
+  } else {
+    rows = [R('program', d.program), R('volume', volume), R('source', d.sourceLabel || d.source), R('app', d.appLabel), R('audio', d.audio), R('tvaudio', d.tvAudio),
+      R('plex', d.plex ? d.plex.replace(/^Plex: /, '') : null), R('jellyfin', d.jellyfin ? d.jellyfin.replace(/^Jellyfin: /, '') : null),
+      R('processing', d.processing), R('video', d.video), R('colour', d.colour)];
   }
-  if (d.ampLocal) { // the receiver is playing its own source: the TV's video and app details would be misleading
-    return [['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
-      ['Receiver input', inputLabel(d.ampInput)], ['Now playing', d.nowPlaying], ['Audio (amp)', d.audio], ['Processing', d.processing]]
-      .filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
-  }
-  var rows = [
-    ['Sound program', d.program], ['Volume', d.volume === null ? null : (d.mute ? 'Muted (' + (d.volumeText || d.volume) + ')' : (d.volumeText || d.volume))],
-    ['Source', d.sourceLabel || d.source], ['App', d.appLabel], ['Audio (amp)', d.audio], ['Plex', d.plex ? d.plex.replace(/^Plex: /, '') : null],
-    ['Jellyfin', d.jellyfin ? d.jellyfin.replace(/^Jellyfin: /, '') : null],
-    ['Processing', d.processing], ['Video', d.video], ['Colour', d.colour]
-  ];
-  return rows.filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
+  rows = rows.filter(function (r) { return r[1] !== null && r[1] !== undefined && r[1] !== ''; });
+  // the switchable rows go in the chosen order; rows that are not switchable (Volume, ...) keep their places
+  var order = orderedKeys();
+  var keyed = rows.filter(function (r) { return r[2]; }).sort(function (a, b) { return order.indexOf(a[2]) - order.indexOf(b[2]); }), n = 0;
+  return rows.map(function (r) { return r[2] ? keyed[n++] : r; });
+}
+function rowHtml(r) {
+  var sw = r[2] ? '<span class="rs' + (r[3] ? ' on' : '') + '"></span>' : '';
+  var hk = r[2] || r[0], help = shared.ROW_HELP[hk];
+  var hi = help ? '<button type="button" class="hi" data-h="' + esc(hk) + '" title="' + esc(help) + '" aria-label="About ' + esc(r[0]) + '">i</button>' : '';
+  return '<tr><th' + (r[2] ? ' class="rt" data-k="' + r[2] + '" title="Show this row on the TV"' : '') + '><div class="rl">' + sw + '<span>' + esc(r[0]) + '</span>' + hi + '</div></th><td>' + esc(r[1]) + '</td><td class="rh"' + (r[2] ? ' data-d="' + r[2] + '" title="Drag to reorder">&#8801;' : '>') + '</td></tr>';
 }
 
 function infoPage(shownOnTv) {
   var d = snapshot();
-  var body = infoRows(d)
-    .map(function (r) { return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>'; }).join('');
+  var body = infoRows(d).map(rowHtml).join('');
   return '<!doctype html><html lang="en-AU"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>' + esc(pageTitle(d)) + '</title><style>' +
@@ -443,10 +481,16 @@ function infoPage(shownOnTv) {
     'body{margin:0;padding:max(10px,1.2vh) 14px;font:16px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#111114;color:#eee;overflow:hidden}' +
     'main{max-width:720px;margin:0 auto;height:100%;display:flex;flex-direction:column;gap:max(6px,1vh)}' +
     'h1{font-size:clamp(15px,2.6vh,22px);font-weight:600;margin:0}p#meta{margin:0;color:#8b8b93;font-size:clamp(11px,1.7vh,14px)}' +
-    '.box{flex:0 0 auto}' +
+    '.box{flex:0 1 auto;min-height:0;overflow-y:auto}' +
     'table{width:100%;border-collapse:collapse;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;overflow:hidden;font-size:clamp(11px,1.95vh,16px)}' +
     'th,td{text-align:left;padding:.45em .7em;border-bottom:1px solid #2a2a30;vertical-align:top;line-height:1.25}tr:last-child th,tr:last-child td{border-bottom:0}' +
-    'th{width:32%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}' +
+    'th{width:38%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}th.rt{cursor:pointer;-webkit-user-select:none;user-select:none}' +
+    '.rl{display:flex;align-items:center;gap:.5em}.rs{flex:0 0 auto;position:relative;width:1.9em;height:1.1em;border-radius:1em;background:#3a3a42;transition:background .15s}' +
+    '.rs:after{content:"";position:absolute;top:.14em;left:.14em;width:.82em;height:.82em;border-radius:50%;background:#fff;transition:left .15s}' +
+    '.rs.on{background:#34a853}.rs.on:after{left:.98em}' +
+    '.hi{flex:0 0 auto;width:1.35em;height:1.35em;margin-left:.15em;padding:0;border-radius:50%;border:1px solid #55555e;background:transparent;color:#9a9aa2;font:italic 600 .85em Georgia,serif;line-height:1;cursor:help}.hi:hover,.hi:focus-visible{color:#fff;border-color:#9a9aa2}' +
+    'tr.hr td{background:#16161a;color:#b4b4bc;font-size:.92em;padding:.4em .7em .55em 1.2em}' +
+    'td.rh{width:2.4em;padding:.45em .3em;text-align:center;color:#6b6b73;font-size:1.2em;line-height:1;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}tr.drag{background:#26262d}' +
     'nav{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}' +
     'footer{flex:0 0 auto;text-align:center;color:#6b6b73;font-size:clamp(10px,1.5vh,12px)}' +
     '.tg{display:flex;align-items:center;justify-content:space-between;gap:8px;font:inherit;font-size:clamp(11px,1.8vh,15px);color:#eee;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;padding:.55em .7em;cursor:pointer;text-align:left;line-height:1.15}' +
@@ -467,18 +511,30 @@ function infoPage(shownOnTv) {
     '<nav><button class="tg' + (d.pinned ? ' on' : '') + '" id="tv" type="button">Show on TV<span class="sw"></span></button>' +
     '<button class="tg on" id="live" type="button">Live refresh<span class="sw"></span></button>' +
     '<button class="tg' + (autoInfo ? ' on' : '') + '" id="auto" type="button">Auto info<span class="sw"></span></button>' +
-    '<a href="/setup">Setup</a><a href="/status.json">JSON</a></nav>' +
+    '<a href="/setup">Setup</a><a href="/status.json">JSON</a><a href="/logs">Logs</a></nav>' +
     '<footer>AV Overlay' + (shared.APP_VERSION ? ' v' + esc(shared.APP_VERSION) : '') + '</footer></main>' +
     '<script>(function(){var pinned=' + (d.pinned ? 'true' : 'false') + ',live=true,timer=null,auto=' + (autoInfo ? 'true' : 'false') + ',' +
     'au=document.getElementById("auto"),tv=document.getElementById("tv"),lv=document.getElementById("live"),rows=document.getElementById("rows"),meta=document.getElementById("meta");' +
     'function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]})}' +
+    'var HELP=' + JSON.stringify(shared.ROW_HELP).replace(/</g, '\\u003c') + ',openHelp={};' +
+    'function helpRow(t){return"<tr class=\\"hr\\"><td colspan=\\"3\\">"+esc(t)+"</td></tr>"}' +
+    'function toggleHelp(b){var k=b.getAttribute("data-h"),tr=b.parentNode;while(tr&&tr.tagName!=="TR")tr=tr.parentNode;if(!tr||!HELP[k])return;var nx=tr.nextSibling;' +
+    'if(nx&&nx.classList&&nx.classList.contains("hr")){nx.parentNode.removeChild(nx);delete openHelp[k]}else{openHelp[k]=1;tr.insertAdjacentHTML("afterend",helpRow(HELP[k]))}}' +
     'function setOn(b,on){if(on)b.classList.add("on");else b.classList.remove("on")}' +
     'function showAuto(on){auto=!!on;setOn(au,auto)}' +
     'au.onclick=function(){fetch("/tv/auto?v="+(auto?"0":"1"),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){showAuto(j.autoInfo)}).catch(function(){})};' +
-    'function paint(d){if(d.title){document.title=d.title;var h=document.getElementById("ttl");if(h)h.textContent=d.title}if(d.rows){rows.innerHTML=d.rows.map(function(r){return"<tr><th>"+esc(r[0])+"</th><td>"+esc(r[1])+"</td></tr>"}).join("")||"<tr><td>No data yet</td></tr>"}' +
+    'function paint(d){if(d.title){document.title=d.title;var h=document.getElementById("ttl");if(h)h.textContent=d.title}if(d.rows){rows.innerHTML=d.rows.map(function(r){var hk=r[2]||r[0],hp=HELP[hk];return"<tr><th"+(r[2]?" class=\\"rt\\" data-k=\\""+r[2]+"\\" title=\\"Show this row on the TV\\"":"")+"><div class=\\"rl\\">"+(r[2]?"<span class=\\"rs"+(r[3]?" on":"")+"\\"></span>":"")+"<span>"+esc(r[0])+"</span>"+(hp?"<button type=\\"button\\" class=\\"hi\\" data-h=\\""+esc(hk)+"\\" title=\\""+esc(hp)+"\\" aria-label=\\"About "+esc(r[0])+"\\">i</button>":"")+"</div></th><td>"+esc(r[1])+"</td><td class=\\"rh\\""+(r[2]?" data-d=\\""+r[2]+"\\" title=\\"Drag to reorder\\">&#8801;":">")+"</td></tr>"+(hp&&openHelp[hk]?helpRow(hp):"")}).join("")||"<tr><td>No data yet</td></tr>"}' +
     'if(d.autoInfo!==undefined)showAuto(d.autoInfo);' +
     'pinned=!!d.pinned;setOn(tv,pinned);if(d.updated)meta.textContent="Updated "+new Date(d.updated).toLocaleTimeString("en-AU")}' +
-    'function poll(){fetch("/status.rows.json",{cache:"no-store"}).then(function(r){return r.json()}).then(paint).catch(function(){})}' +
+    'rows.onclick=function(e){var t=e.target;if(t.classList&&t.classList.contains("hi")){toggleHelp(t);return}while(t&&t!==rows&&!(t.getAttribute&&t.getAttribute("data-k")))t=t.parentNode;if(!t||t===rows)return;var s=t.querySelector(".rs"),on=s&&s.classList.contains("on");if(s)setOn(s,!on);' +
+    'fetch("/tv/row?k="+encodeURIComponent(t.getAttribute("data-k"))+"&v="+(on?"0":"1"),{cache:"no-store"}).then(function(r){return r.json()}).then(function(){poll()}).catch(function(){poll()})};' +
+    'var dragRow=null;function rowOf(el){while(el&&el!==rows){if(el.tagName==="TR")return el;el=el.parentNode}return null}' +
+    'rows.addEventListener("pointerdown",function(e){var h=e.target;if(!h.getAttribute||!h.getAttribute("data-d"))return;dragRow=rowOf(h);if(!dragRow)return;openHelp={};Array.prototype.slice.call(rows.querySelectorAll("tr.hr")).forEach(function(x){x.parentNode.removeChild(x)});dragRow.classList.add("drag");if(h.setPointerCapture)h.setPointerCapture(e.pointerId);e.preventDefault()});' +
+    'rows.addEventListener("pointermove",function(e){if(!dragRow)return;var tr=rowOf(document.elementFromPoint(e.clientX,e.clientY));if(!tr||tr===dragRow||!tr.querySelector("[data-d]"))return;var b=tr.getBoundingClientRect();tr.parentNode.insertBefore(dragRow,e.clientY>b.top+b.height/2?tr.nextSibling:tr)});' +
+    'function endDrag(){if(!dragRow)return;dragRow.classList.remove("drag");dragRow=null;var ks=Array.prototype.map.call(rows.querySelectorAll("[data-d]"),function(c){return c.getAttribute("data-d")});' +
+    'fetch("/tv/order?o="+ks.join(","),{cache:"no-store"}).then(function(){poll()}).catch(function(){poll()})}' +
+    'rows.addEventListener("pointerup",endDrag);rows.addEventListener("pointercancel",endDrag);' +
+    'function poll(){if(dragRow)return;fetch("/status.rows.json",{cache:"no-store"}).then(function(r){return r.json()}).then(paint).catch(function(){})}' +
     'tv.onclick=function(){fetch(pinned?"/tv/hide":"/tv/show",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){pinned=!!j.pinned;setOn(tv,pinned);window.setTimeout(poll,900)}).catch(function(){})};' +
     'function setLive(on){live=on;setOn(lv,on);if(timer){window.clearInterval(timer);timer=null}if(on){poll();timer=window.setInterval(poll,5000)}}' +
     'lv.onclick=function(){setLive(!live)};setLive(true)}());</script></body></html>';
@@ -520,6 +576,7 @@ function applySettings(v) {
     if (volumeDisplay !== prevVolumeDisplay) syncAmpVolumeScale(volumeDisplay === 'db');
   }
   if (v.autoInfo !== undefined) autoInfo = v.autoInfo;
+  if (v.tvAudio !== undefined && v.tvAudio !== tvAudio) { tvAudio = v.tvAudio; state.tvAudio = null; tvAudioKey = null; if (tvAudio) fetchTvAudio(); }
   if (typeof v.infoShowMs === 'number') infoShowMs = v.infoShowMs;
   if (typeof v.infoDelayMs === 'number') infoDelayMs = v.infoDelayMs;
   if (v.infoLayout !== undefined) infoLayout = v.infoLayout;
@@ -570,7 +627,7 @@ var setupHandler = require('./setup.js')({
   volumeModes: VOLUME_MODES,
   getSettings: function () {
     var p = readPlexConfig(), j = readJellyfinConfig();
-    return { ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE, ampTypes: AMP_TYPES, autoInfo: autoInfo, corner: corner, volumeDisplay: volumeDisplay,
+    return { ampHost: AMP_HOST, ampPort: AMP_PORT, ampType: AMP_TYPE, ampTypes: AMP_TYPES, autoInfo: autoInfo, tvAudio: tvAudio, corner: corner, volumeDisplay: volumeDisplay,
       infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows,
       plexUrl: p ? p.url : '', plexPlayer: p && p.player_ip ? p.player_ip : '', plexTokenSet: !!p,
       jellyfinUrl: j ? j.url : '', jellyfinDevice: j && j.deviceName ? j.deviceName : '', jellyfinApiKeySet: !!j,
@@ -580,6 +637,8 @@ var setupHandler = require('./setup.js')({
   getJellyfinSecret: function () { return readJellyfinConfig(); },
   applySettings: applySettings
 });
+
+var logsHandler = require('./logs.js')({ logFile: LOG, title: function () { return state.tvName ? state.tvName + ' - Logs' : 'AV Overlay - Logs'; } });
 
 http.createServer(function (req, res) {
   var path = req.url.split('?')[0];
@@ -593,6 +652,7 @@ http.createServer(function (req, res) {
     res.writeHead(204, headers); res.end(); return;
   }
   if (setupHandler(req, res, path)) return;
+  if (logsHandler(req, res, path)) return;
   if (path === '/info') {
     showInfoNow('http ' + req.socket.remoteAddress);
     // give the amp/Plex refresh a moment so the page shows current values
@@ -607,6 +667,7 @@ http.createServer(function (req, res) {
     else {
       tvPinned = /[?&]v=1(&|$)/.test(req.url); // the app reports Quick Access pin/unpin
       log('overlay reported ' + (tvPinned ? 'pinned' : 'unpinned'));
+      if (tvPinned) lastPinReport = Date.now();
       if (tvPinned && lastLaunchAt) log('app answered ' + (Date.now() - lastLaunchAt) + ' ms after the last launch');
     }
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
@@ -627,6 +688,29 @@ http.createServer(function (req, res) {
     var av = /[?&]v=([01])/.exec(req.url);
     if (av) { autoInfo = av[1] === '1'; saveSettings(); log('auto info ' + (autoInfo ? 'on' : 'off')); }
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, autoInfo: autoInfo }));
+  } else if (path === '/tv/row') { // switch one row on or off for the TV bar (the /status page's row switches)
+    var rq = /[?&]k=([a-z]+)&v=([01])/.exec(req.url);
+    if (rq && ROW_KEYS.indexOf(rq[1]) >= 0) {
+      hiddenRows = hiddenRows.filter(function (r) { return r !== rq[1]; });
+      if (rq[2] === '0') hiddenRows.push(rq[1]);
+      saveSettings();
+      log('row ' + rq[1] + ' ' + (rq[2] === '1' ? 'shown' : 'hidden') + ' on the bar');
+      if (tvPinned) scheduleInfo('rows changed', 300);
+    }
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, hiddenRows: hiddenRows }));
+  } else if (path === '/tv/order') { // reorder the rows (the /status page's drag handles); o = comma-separated keys in the new order
+    var oq = /[?&]o=([a-z,]*)/.exec(req.url), sub = [];
+    (oq ? oq[1].split(',') : []).forEach(function (k) { if (ROW_KEYS.indexOf(k) >= 0 && sub.indexOf(k) < 0) sub.push(k); });
+    if (sub.length > 1) { // the rows listed take the places they held before, in the new order (rows with no data right now stay where they are)
+      var cur = orderedKeys(), slots = [];
+      cur.forEach(function (k, i) { if (sub.indexOf(k) >= 0) slots.push(i); });
+      sub.forEach(function (k, j) { cur[slots[j]] = k; });
+      rowOrder = cur;
+      saveSettings();
+      log('row order: ' + rowOrder.join(', '));
+      if (tvPinned) scheduleInfo('rows reordered', 300);
+    }
+    headers['Content-Type'] = 'application/json'; res.writeHead(200, headers); res.end(JSON.stringify({ ok: true, rowOrder: orderedKeys() }));
   } else if (path === '/tv/key') {
     var kq = req.url.split('?')[1] || '';
     log('overlay got key ' + kq);
@@ -787,6 +871,36 @@ function fetchSignal() {
   });
 }
 
+// ---------- Audio (TV): what the TV itself sees on its input (optional, off by default) ----------
+// HDMI inputs: the TV's HDMI diagnostics ("HDMI status" in the hidden menu) give codec, channel count and rate of the
+// incoming stream, with or without a receiver. Other sources (Live TV, LG apps): only the codec the TV decodes.
+var tvAudioInFlight = false, tvAudioKey = null;
+var TV_CODEC = { pcm: 'PCM', ac3: 'Dolby Digital', eac3: 'Dolby Digital Plus', aac: 'AAC', dts: 'DTS', mp3: 'MP3', truehd: 'TrueHD' };
+function setTvAudio(text) {
+  state.tvAudio = text;
+  var key = text || '';
+  if (tvAudioKey === null) { tvAudioKey = key; return; } // baseline: no pop-up
+  if (key !== tvAudioKey) { tvAudioKey = key; scheduleInfo('LG TV audio ' + (text || 'none')); }
+}
+function fetchTvAudio() {
+  if (!tvAudio || tvAudioInFlight) return;
+  tvAudioInFlight = true;
+  var hdmi = /^HDMI (\d)$/.exec(state.source || '');
+  shared.lunaJson(LUNA, 'luna://com.webos.service.audio/tv/getAudioInputProperty', function (p) {
+    var ap = p && p.audioInputProperty && p.audioInputProperty[0];
+    if (!ap) { tvAudioInFlight = false; return; }
+    var codec = ap.codec ? (TV_CODEC[String(ap.codec).toLowerCase()] || String(ap.codec).toUpperCase()) : null;
+    if (!hdmi || !ap.pipelineId) { tvAudioInFlight = false; setTvAudio(codec); return; }
+    shared.lunaJson(LUNA, 'luna://com.webos.service.extinputs.hdmi/getHDMIDiagnosticsInfo',
+      JSON.stringify({ pipelineId: ap.pipelineId, port: Number(hdmi[1]) }), function (d) {
+        tvAudioInFlight = false;
+        var line = d && d.HDMIdiagnostics && d.HDMIdiagnostics.general && d.HDMIdiagnostics.general.sublist_3;
+        var f = /^(.+?)\s+(\d+)Ch\s+(\d+)Hz/.exec(line || ''); // e.g. "PCM 8Ch 48000Hz"
+        setTvAudio(f ? f[1] + ' · ' + f[2] + ' ch · ' + (Number(f[3]) / 1000) + ' kHz' : codec);
+      });
+  });
+}
+
 // ---------- TV video output (luna subscription; needs a pty, hence `script`) ----------
 function fmtRate(r) {
   r = Number(r) || 0;
@@ -819,7 +933,7 @@ function handleVideo(resp) {
   state.appId = app;
   var m = app.match(/hdmi(\d)/);
   var prevSource = state.source;
-  state.source = m ? 'HDMI ' + m[1] : (/livetv|tvsource|dtv/i.test(app + v.connectedSource) ? 'Live TV' : (v.connectedSource || null));
+  state.source = m ? 'HDMI ' + m[1] : (/livetv|tvsource|dtv/i.test(app + v.connectedSource) ? 'Live TV' : (v.connectedSource === 'VDEC' ? 'LG TV apps' : (v.connectedSource || null))); // VDEC = the TV's own video decoder (apps running on the TV)
   // Switching input closes the overlay window; bring a pinned bar back once the new input has settled.
   if (tvPinned && prevSource && state.source && prevSource !== state.source) {
     log('input changed to ' + state.source + ' while pinned; restoring the bar');
@@ -829,7 +943,7 @@ function handleVideo(resp) {
 
   var key = [v.width, v.height, scan, v.frameRate, hdr, app].join('|');
   if (videoKey === null) { videoKey = key; log('video baseline ' + state.video); }
-  else if (key !== videoKey) { videoKey = key; scheduleInfo('video ' + state.video); fetchSignal(); }
+  else if (key !== videoKey) { videoKey = key; scheduleInfo('video ' + state.video); fetchSignal(); fetchTvAudio(); }
 }
 
 var subscriptions = [];
@@ -1030,6 +1144,7 @@ function stop() {
   try { sock.close(); } catch (e) {}
   if (ampDriver) ampDriver.stop();
   subscriptions.forEach(function (sub) { sub.stop(); });
+  shared.stopAllSubscriptions();
   process.exit(0);
 }
 // a stray exception should not take the overlay down until the next reboot
@@ -1037,6 +1152,21 @@ process.on('uncaughtException', function (e) { log('uncaught exception: ' + (e &
 process.on('unhandledRejection', function (e) { log('unhandled rejection: ' + (e && e.stack || e)); });
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
+process.on('exit', function () { try { shared.stopAllSubscriptions(); } catch (e) {} });
+
+// Show on TV is a saved preference: any change of tvPinned (the page switch, Quick Access, the remote dismissing the bar) is written
+// to the settings file, and a restart or TV reboot puts the bar back. The TV may still be booting, so retry until the app confirms.
+var savedPin = pinWanted, lastPinReport = 0;
+if (pinWanted) tvPinned = true; // the bar stays wanted (and saved as on) until the user switches it off
+var pinSaver = setInterval(function () { if (tvPinned !== savedPin) { savedPin = tvPinned; saveSettings(); } }, 2000);
+if (pinSaver.unref) pinSaver.unref();
+function restorePin(attempt) {
+  if (!pinWanted || lastPinReport || (attempt > 0 && !tvPinned)) return; // done, or the user switched it off meanwhile
+  log('restoring the pinned bar after a restart' + (attempt ? ' (attempt ' + (attempt + 1) + ')' : ''));
+  showInfoNow('restore pin after restart', true);
+  if (attempt < 8) setTimeout(function () { if (!lastPinReport && tvPinned) restorePin(attempt + 1); }, 15000);
+}
+if (pinWanted) setTimeout(function () { restorePin(0); }, 8000);
 
 // ---------- receiver driver selection ----------
 // Yamaha is polled/subscribed by fetchStatus; a Denon driver pushes Yamaha-shaped statuses into handleStatus.
@@ -1063,6 +1193,7 @@ startVideoWatch();
 setInterval(function () { fetchStatus(true); }, RESUBSCRIBE_MS);
 setInterval(function () { fetchStatus(false); }, POLL_MS);
 setInterval(fetchSignal, SIGNAL_POLL_MS);
+setInterval(fetchTvAudio, SIGNAL_POLL_MS);
 setInterval(fetchPlex, PLEX_POLL_MS);
 setInterval(fetchJellyfin, JELLYFIN_POLL_MS);
 setInterval(fetchNowPlaying, NOW_POLL_MS); // fallback for network sources whose events are missed
