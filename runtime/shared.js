@@ -159,6 +159,50 @@ function pickJellyfinSession(list, cfg, onTv, strict) {
   return active[0] || null;
 }
 
+// Auto-info change detection for media rows. Only a change of stable identity announces (item, audio/video stream,
+// play method); bitrate, progress and transcode stats never do. A session that drops out of a poll or two and comes
+// back with the same identity is not announced again (grace window).
+function mediaAnnouncer(graceMs) {
+  var last = null, goneAt = 0;
+  graceMs = graceMs === undefined ? 30000 : graceMs;
+  return {
+    seen: function (key, now) {
+      now = now || Date.now(); goneAt = 0;
+      if (key === last) return false;
+      last = key; return true;
+    },
+    gone: function (now) {
+      now = now || Date.now();
+      if (!goneAt) goneAt = now;
+      else if (now - goneAt >= graceMs) last = null;
+    }
+  };
+}
+function jellyfinIdentity(session) {
+  var item = session.NowPlayingItem || {}, streams = item.MediaStreams || [], ps = session.PlayState || {};
+  var a = null, v = null;
+  if (ps.AudioStreamIndex !== undefined && ps.AudioStreamIndex !== null) a = streams.filter(function (s) { return s.Index === ps.AudioStreamIndex; })[0] || null;
+  streams.forEach(function (s) {
+    if (!a && s.Type === 'Audio' && s.IsDefault) a = s;
+    if (s.Type === 'Video' && !v) v = s;
+  });
+  if (!a) a = streams.filter(function (s) { return s.Type === 'Audio'; })[0] || null;
+  return [item.Id || item.Name || '', a ? [a.Language, a.Codec, a.Channels].join('/') : '', v ? [v.Codec, v.VideoRangeType || v.VideoRange].join('/') : '',
+    ps.PlayMethod || ''].join('|');
+}
+function plexIdentity(md) {
+  var media = (md.Media || [])[0] || {}, part = (media.Part || [])[0] || {}, streams = part.Stream || [];
+  var a = null, v = null;
+  streams.forEach(function (st) {
+    if (st.streamType === 2 && (st.selected || !a)) a = st;
+    if (st.streamType === 1 && !v) v = st;
+  });
+  var tc = md.TranscodeSession;
+  var decision = !tc ? 'direct' : (tc.videoDecision === 'transcode' || tc.audioDecision === 'transcode') ? 'transcode' : 'copy';
+  return [md.ratingKey || md.title || '', a ? [a.languageCode, a.codec, a.channels].join('/') : '', v ? [v.codec, v.DOVIPresent ? 'dv' : '', v.colorTrc].join('/') : '', decision].join('|');
+}
+
 module.exports = {
+  mediaAnnouncer: mediaAnnouncer, jellyfinIdentity: jellyfinIdentity, plexIdentity: plexIdentity,
   isJellyfinTvApp: isJellyfinTvApp, pickJellyfinSession: pickJellyfinSession,  extend: extend, bufferFrom: bufferFrom,  jellyfinAuth: jellyfinAuth,  parseUrl: parseUrl, APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };

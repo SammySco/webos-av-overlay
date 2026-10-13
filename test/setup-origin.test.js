@@ -160,3 +160,22 @@ test('Moonfin matched by title and by its real session names; amp input does not
   assert.doesNotMatch(w, /if \(!onTv && \(!state\.source/); // no source gate any more
   assert.match(w, /log\('foreground app: '/);
 });
+test('auto info: bitrate/progress/transcode-stat changes do not re-announce; real changes do', () => {
+  const shared = require('../runtime/shared.js');
+  const s = (kbps, pos, extra) => Object.assign({ Client: 'Moonfin for webOS', DeviceName: 'LG Smart TV',
+    PlayState: Object.assign({ PositionTicks: pos, PlayMethod: 'DirectPlay', AudioStreamIndex: 1 }, extra),
+    TranscodingInfo: { Bitrate: kbps * 1000, Framerate: 23.9 },
+    NowPlayingItem: { Id: 'corridor', MediaStreams: [{ Type: 'Video', Index: 0, Codec: 'hevc', VideoRangeType: 'HDR10' },
+      { Type: 'Audio', Index: 1, Codec: 'eac3', Channels: 6, Language: 'eng', BitRate: kbps * 1000, IsDefault: true },
+      { Type: 'Audio', Index: 2, Codec: 'aac', Channels: 2, Language: 'nld' }] } });
+  const ann = shared.mediaAnnouncer(30000);
+  assert.strictEqual(ann.seen(shared.jellyfinIdentity(s(768, 1)), 1000), true);
+  assert.strictEqual(ann.seen(shared.jellyfinIdentity(s(640, 5e7)), 5000), false);   // bitrate + position only
+  ann.gone(9000); ann.gone(13000);                                                     // dropped out for a few polls
+  assert.strictEqual(ann.seen(shared.jellyfinIdentity(s(900, 9e7)), 17000), false);
+  assert.strictEqual(ann.seen(shared.jellyfinIdentity(s(900, 9e7, { AudioStreamIndex: 2 })), 21000), true); // audio track switch
+  ann.gone(30000); ann.gone(70000);                                                    // gone for good
+  assert.strictEqual(ann.seen(shared.jellyfinIdentity(s(900, 9e7, { AudioStreamIndex: 2 })), 80000), true);
+  const p = (br) => ({ ratingKey: '7', title: 'x', Media: [{ bitrate: br, Part: [{ Stream: [{ streamType: 1, codec: 'hevc' }, { streamType: 2, codec: 'truehd', channels: 8, selected: true }] }] }] });
+  assert.strictEqual(shared.plexIdentity(p(20000)), shared.plexIdentity(p(18000)));
+});

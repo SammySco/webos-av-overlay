@@ -66,8 +66,8 @@ var progKey = null, audioKey = null, videoKey = null;
 var profiles = null;
 var state = { tvName: null, lastOk: null, volumeText: null, ampInput: null, ampLocal: false, nowPlaying: null, plexApp: null, program: null, audio: null, video: null, colour: null, source: null, processing: null, plex: null, jellyfin: null,
   volume: null, mute: false, updated: null };
-var plexKey = null, plexInFlight = false;
-var jellyfinKey = null, jellyfinInFlight = false;
+var plexAnn = shared.mediaAnnouncer(), plexInFlight = false;
+var jellyfinAnn = shared.mediaAnnouncer(), jellyfinInFlight = false;
 var procKey = null;
 var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
 var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
@@ -892,7 +892,7 @@ function pickSession(list, cfg) {
 }
 
 function clearPlex() {
-  state.plex = null; plexKey = null;
+  state.plex = null; plexAnn.gone();
   if (state.plexApp) { state.plexApp = null; if (profiles) profiles.onPlexApp(); }
 }
 
@@ -914,7 +914,7 @@ function fetchPlex() {
     state.plex = sum.text;
     var product = ((md.Player || {}).product || '').slice(0, 40) || null;
     if (product !== state.plexApp) { state.plexApp = product; if (profiles) profiles.onPlexApp(); }
-    if (sum.key !== plexKey) { plexKey = sum.key; scheduleInfo(sum.text); }
+    if (plexAnn.seen(shared.plexIdentity(md))) scheduleInfo(sum.text);
   });
 }
 
@@ -967,7 +967,7 @@ function onTvJellyfinApp() {
 }
 var pickJellyfinSession = shared.pickJellyfinSession;
 
-function clearJellyfin() { state.jellyfin = null; jellyfinKey = null; }
+function clearJellyfin() { state.jellyfin = null; jellyfinAnn.gone(); }
 
 function fetchJellyfin() {
   if (jellyfinInFlight) return;
@@ -994,7 +994,7 @@ function fetchJellyfin() {
     var sum = jellyfinSummary(session);
     state.jellyfin = sum.text;
     log('jellyfin: ' + (session.Client || '?') + '/' + (session.DeviceName || '?') + ' ' + sum.key.split('|')[2]);
-    if (sum.key !== jellyfinKey) { jellyfinKey = sum.key; scheduleInfo(sum.text); }
+    if (jellyfinAnn.seen(shared.jellyfinIdentity(session))) scheduleInfo(sum.text);
   });
 }
 
