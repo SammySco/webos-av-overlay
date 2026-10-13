@@ -6,12 +6,14 @@
 #
 # Optional environment (skips the matching question; set EARC_NONINTERACTIVE=1 to never ask):
 #   TV_SSH_KEY            private key for ssh
-#   EARC_AMP_HOST         Yamaha receiver IP address or hostname
+#   EARC_AMP_HOST         Yamaha receiver IP address or hostname; unset keeps the saved one, "none" removes it (the
+#                         info bar then shows only what the TV and Plex/Jellyfin know)
 #   EARC_AMP_PORT         receiver port (default 80)
 #   EARC_PLEX_URL         Plex server URL, e.g. http://192.168.1.10:32400
 #   EARC_PLEX_TOKEN       Plex token (never put this in shell history; the prompt hides it)
 #   EARC_PLEX_PLAYER_IP   only show the Plex session from this player
 #   EARC_AUTO_INFO        on|off  show the info bar by itself when the stream/amp info changes
+#   EARC_TV_AUDIO         on|off  show the "Audio (TV)" line: the audio the TV itself sees on its input
 #   EARC_CORNER           top-left|top-center|top-right|middle-left|middle-right|bottom-left|bottom-center|bottom-right
 # Everything can be changed later at http://TV_IP:41101/setup or from the AV Overlay Settings app.
 set -eu
@@ -69,6 +71,9 @@ if [ -t 0 ] && [ "${EARC_NONINTERACTIVE:-0}" != 1 ]; then INTERACTIVE=1; fi
 valid_host() { case "$1" in ''|*[!A-Za-z0-9.-]*|.*|*.|-*|*-) return 1;; *) return 0;; esac; }
 
 AMP_HOST="${EARC_AMP_HOST:-}"
+AMP_CLEAR=0
+case "$AMP_HOST" in none|None|NONE) AMP_HOST=''; AMP_CLEAR=1;; esac
+TV_AUDIO="${EARC_TV_AUDIO:-}"
 AMP_PORT="${EARC_AMP_PORT:-}"
 PLEX_URL="${EARC_PLEX_URL:-}"
 PLEX_TOKEN="${EARC_PLEX_TOKEN:-}"
@@ -80,12 +85,18 @@ if [ "$INTERACTIVE" = 1 ]; then
 	echo
 	echo "Settings (press Enter to keep the value in [brackets]; all of this can be changed later at http://<tv>:41101/setup)"
 
-	if [ -z "$AMP_HOST" ]; then
+	if [ -z "$AMP_HOST" ] && [ "$AMP_CLEAR" != 1 ]; then
 		DEFAULT_AMP=$(cur ampHost)
 		while :; do
-			printf 'Yamaha receiver IP address or hostname [%s]: ' "$DEFAULT_AMP"
+			if [ -n "$DEFAULT_AMP" ]; then
+				printf 'Yamaha receiver IP address or hostname, or "none" to remove it [%s]: ' "$DEFAULT_AMP"
+			else
+				printf 'Yamaha receiver IP address or hostname (press Enter to skip: the info bar then shows only what the TV knows): '
+			fi
 			read -r ANS || ANS=
+			case "$ANS" in none|None|NONE) AMP_CLEAR=1; echo "  No receiver. You can add one later at http://<tv>:41101/setup."; break;; esac
 			[ -n "$ANS" ] || ANS=$DEFAULT_AMP
+			if [ -z "$ANS" ]; then echo "  Skipped. You can add a receiver later at http://<tv>:41101/setup."; break; fi
 			if ! valid_host "$ANS"; then echo "  That does not look like an IP address or hostname."; continue; fi
 			echo "  Checking that the TV can reach it..."
 			if ssh_tv "curl -s -m 4 http://$ANS:${AMP_PORT:-80}/YamahaExtendedControl/v1/system/getDeviceInfo" 2>/dev/null | grep -q '"response_code" *: *0'; then
@@ -132,6 +143,15 @@ if [ "$INTERACTIVE" = 1 ]; then
 		[ -n "$AUTO_INFO" ] || AUTO_INFO=$DEF_AUTO
 	fi
 
+	if [ -z "$TV_AUDIO" ]; then
+		DEF_TVA=$(cur tvAudio); [ -n "$DEF_TVA" ] || DEF_TVA=off
+		# with no receiver the TV's own audio line is the only audio information, so suggest it
+		if [ "$AMP_CLEAR" = 1 ] || { [ -z "$AMP_HOST" ] && [ -z "$(cur ampHost)" ]; }; then DEF_TVA=on; fi
+		printf 'Show an "Audio (TV)" line (the audio format, channels and rate the TV itself sees on its input)? (on/off) [%s]: ' "$DEF_TVA"
+		read -r TV_AUDIO || TV_AUDIO=
+		[ -n "$TV_AUDIO" ] || TV_AUDIO=$DEF_TVA
+	fi
+
 	if [ -z "$CORNER" ]; then
 		DEF_CORNER=$(cur corner); [ -n "$DEF_CORNER" ] || DEF_CORNER=top-left
 		printf 'Info bar position (top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center, bottom-right) [%s]: ' "$DEF_CORNER"
@@ -143,6 +163,8 @@ fi
 # values go to the TV on stdin so the token never appears on a command line
 {
 	[ -z "$AMP_HOST" ] || printf 'ampHost=%s\n' "$AMP_HOST"
+	[ "$AMP_CLEAR" != 1 ] || printf 'ampClear=yes\n'
+	[ -z "$TV_AUDIO" ] || printf 'tvAudio=%s\n' "$TV_AUDIO"
 	[ -z "$AMP_PORT" ] || printf 'ampPort=%s\n' "$AMP_PORT"
 	[ -z "$PLEX_URL" ] || printf 'plexUrl=%s\n' "$PLEX_URL"
 	[ -z "$PLEX_TOKEN" ] || printf 'plexToken=%s\n' "$PLEX_TOKEN"
@@ -151,8 +173,9 @@ fi
 	[ -z "$CORNER" ] || printf 'corner=%s\n' "$CORNER"
 } | ssh_tv "$CONFIGURE set"
 
-if [ -z "$AMP_HOST" ] && [ -z "$(cur ampHost)" ]; then
-	echo "NOTE: no receiver address is set yet. Open http://<tv>:41101/setup (or the AV Overlay Settings app) to enter it."
+if [ "$AMP_CLEAR" = 1 ] || { [ -z "$AMP_HOST" ] && [ -z "$(cur ampHost)" ]; }; then
+	echo "NOTE: no receiver address is set. The info bar will show only what the TV (and Plex/Jellyfin) knows, with no volume popup"
+	echo "      or sound programs. Add a Yamaha receiver any time at http://<tv>:41101/setup (or the AV Overlay Settings app)."
 fi
 
 echo "Enabling the bundled watcher..."

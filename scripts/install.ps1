@@ -18,12 +18,13 @@
 param(
   [string]$TvHost = $env:TV_HOST,
   [string]$SshKey = $env:TV_SSH_KEY,
-  [string]$AmpHost = $env:EARC_AMP_HOST,
+  [string]$AmpHost = $env:EARC_AMP_HOST,   # 'none' removes a saved receiver (the info bar then shows only what the TV knows)
   [string]$AmpPort = $env:EARC_AMP_PORT,
   [string]$PlexUrl = $env:EARC_PLEX_URL,
   [string]$PlexToken = $env:EARC_PLEX_TOKEN,
   [string]$PlexPlayerIp = $env:EARC_PLEX_PLAYER_IP,
   [string]$AutoInfo = $env:EARC_AUTO_INFO,
+  [string]$TvAudio = $env:EARC_TV_AUDIO,   # on|off: the "Audio (TV)" line (what the TV itself sees on its input)
   [string]$Corner = $env:EARC_CORNER,
   [switch]$NonInteractive
 )
@@ -164,13 +165,19 @@ function Ask([string]$prompt, [string]$default) {
 }
 function Test-HostName([string]$h) { return ($h -match '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$') }
 
+$AmpClear = $false
+if ($AmpHost -match '^(?i:none)$') { $AmpHost = ''; $AmpClear = $true }
+
 if ($Interactive) {
   Write-Host ''
   Write-Host 'Settings (press Enter to keep the value in [brackets]; everything can be changed later at http://<tv>:41101/setup)'
-  if (-not $AmpHost) {
+  if (-not $AmpHost -and -not $AmpClear) {
     $port = if ($AmpPort) { $AmpPort } else { '80' }
     while ($true) {
-      $ans = Ask 'Yamaha receiver IP address or hostname' $cur['ampHost']
+      $label = if ($cur['ampHost']) { 'Yamaha receiver IP address or hostname, or "none" to remove it' } else { 'Yamaha receiver IP address or hostname (press Enter to skip: the info bar then shows only what the TV knows)' }
+      $ans = Ask $label $cur['ampHost']
+      if ($ans -match '^(?i:none)$') { $AmpClear = $true; Write-Host '  No receiver. You can add one later at http://<tv>:41101/setup.'; break }
+      if (-not $ans) { Write-Host '  Skipped. You can add a receiver later at http://<tv>:41101/setup.'; break }
       if (-not (Test-HostName $ans)) { Write-Host '  That does not look like an IP address or hostname.'; continue }
       Write-Host '  Checking that the TV can reach it ...'
       $probe = Invoke-Tv "curl -s -m 4 http://${ans}:${port}/YamahaExtendedControl/v1/system/getDeviceInfo"
@@ -201,6 +208,12 @@ if ($Interactive) {
     $defAuto = if ($cur['autoInfo']) { $cur['autoInfo'] } else { 'on' }
     $AutoInfo = Ask 'Show the info bar by itself when the stream or amp info changes? (on/off)' $defAuto
   }
+  if (-not $TvAudio) {
+    $defTva = if ($cur['tvAudio']) { $cur['tvAudio'] } else { 'off' }
+    # with no receiver the TV's own audio line is the only audio information, so suggest it
+    if ($AmpClear -or (-not $AmpHost -and -not $cur['ampHost'])) { $defTva = 'on' }
+    $TvAudio = Ask 'Show an "Audio (TV)" line (the audio format, channels and rate the TV itself sees on its input)? (on/off)' $defTva
+  }
   if (-not $Corner) {
     $defCorner = if ($cur['corner']) { $cur['corner'] } else { 'top-left' }
     $Corner = Ask 'Info bar position (top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center, bottom-right)' $defCorner
@@ -209,6 +222,8 @@ if ($Interactive) {
 
 $lines = @()
 if ($AmpHost)      { $lines += "ampHost=$AmpHost" }
+if ($AmpClear)     { $lines += 'ampClear=yes' }
+if ($TvAudio)      { $lines += "tvAudio=$TvAudio" }
 if ($AmpPort)      { $lines += "ampPort=$AmpPort" }
 if ($PlexUrl)      { $lines += "plexUrl=$PlexUrl" }
 if ($PlexToken)    { $lines += "plexToken=$PlexToken" }     # sent on stdin only, never on a command line
@@ -221,8 +236,9 @@ if ($lines.Count -gt 0) {
   if ($res.Out -notmatch 'settings saved') { Fail "The TV did not accept the settings: $($res.Out) $($res.Err)" }
   Write-Host 'Settings saved.'
 }
-if (-not $AmpHost -and -not $cur['ampHost']) {
-  Write-Host 'NOTE: no receiver address is set yet. Open http://<tv>:41101/setup (or the AV Overlay icon on the TV) to enter it.' -ForegroundColor Yellow
+if ($AmpClear -or (-not $AmpHost -and -not $cur['ampHost'])) {
+  Write-Host 'NOTE: no receiver address is set. The info bar will show only what the TV (and Plex/Jellyfin) knows, with no volume popup' -ForegroundColor Yellow
+  Write-Host '      or sound programs. Add a Yamaha receiver any time at http://<tv>:41101/setup (or the AV Overlay icon on the TV).' -ForegroundColor Yellow
 }
 
 # ---------- start the service ----------

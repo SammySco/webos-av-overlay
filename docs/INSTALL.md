@@ -13,7 +13,7 @@ requirements first, because the biggest one (a rooted TV) decides whether this p
 | What | Notes |
 |---|---|
 | **LG TV running webOS that can be rooted** | Rooting depends on the exact model year and firmware. Check the compatibility lists linked in section 3 *before* doing anything else. |
-| **Yamaha receiver with the Extended Control API** | Most MusicCast and recent RX-V models (tested: RX-V485 over eARC). Other brands are not supported. |
+| **Yamaha receiver with the Extended Control API** | Most MusicCast and recent RX-V models (tested: RX-V485 over eARC). Other brands are not supported, but the receiver is optional if you only want the TV-side info bar (see section 6, "Without a receiver"). |
 | TV and receiver on the **same network** | Wired is best. Give both a fixed address (DHCP reservation in the router). |
 | A computer (Windows, macOS or Linux) | Used once to install, and to rebuild. |
 | *Optional:* Apple TV, Plex server, Jellyfin server, Home Assistant | Only needed for the features that use them (sections 7 to 10). |
@@ -85,9 +85,12 @@ Git or Node, and asks the same questions. From a terminal:
 `powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -TvHost root@TV_IP` (add `-SshKey C:\path\to\key` if your key is not the default).
 
 The installer builds two packages, installs them (the overlay and the **AV Overlay** settings icon), and asks:
-- **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there.
+- **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there. Press **Enter to skip** if you
+  have no Yamaha receiver (see "Without a receiver" below); type `none` to remove a saved one.
 - **Plex** (optional): server URL, token (typing is hidden) and the player's IP. Press `n` to skip.
 - **Auto info**: whether the info bar appears by itself when something changes.
+- **Audio (TV)**: whether to add a line with the audio the TV itself sees on its input. It suggests **on** when you
+  skipped the receiver, otherwise **off**.
 - **Info bar position**: top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right.
 
 Then it starts the service. Check it:
@@ -95,6 +98,19 @@ Then it starts the service. Check it:
 - Change the receiver volume. A number should appear bottom-right on the TV.
 - Press **Show on TV** on the status page. The info bar should appear.
 - Open `http://TV_IP:41101/setup` (or the **AV Overlay** icon on the TV's home screen) to change anything later.
+
+**Choose and order the bar's rows.** On the status page each row has an on/off switch (shows it on the TV bar or not)
+and a drag handle (moves it). The same switches are in the **Rows shown on the info bar** list at `/setup`.
+
+**Audio (TV) row (optional).** At `/setup` under Display, tick **Show "Audio (TV)"** to add a line with the audio the
+TV itself sees on its input: codec, channels and sample rate on an HDMI input (an Apple TV sends 5.1 as 8 channels, so
+the count tells stereo from surround, not 5.1 from 7.1), and only the codec on Live TV and LG apps. It is off by default.
+
+**Without a receiver.** For a TV-only info bar (no volume popup or sound programs), press Enter at the installer's
+receiver question. To script it, leave `EARC_AMP_HOST` unset and set `EARC_NONINTERACTIVE=1` (Windows: `-NonInteractive`);
+`EARC_AMP_HOST=none` removes a receiver that was saved earlier, and `EARC_TV_AUDIO=on` switches Audio (TV) on. You can
+also clear the receiver address at `/setup`. Then use **Show on TV**. The bar shows Source, App, Audio (TV),
+Plex or Jellyfin, Video and Colour. See the README section "Using it without a Yamaha receiver" for the limits.
 
 Optional on the TV: *long-press an unused number key → assign it to the AV Overlay app* (LG's Quick Access). Opening
 the app that way pins the bar; opening it again hides it.
@@ -196,7 +212,8 @@ The address can be changed any time from the app's menu → **Change TV address*
 |---|---|
 | Installer cannot connect | `ssh root@TV_IP` works by hand? SSH enabled in the Homebrew Channel? Correct key? |
 | "No Yamaha receiver answered" | Receiver address, Network Standby on, same network, API test from section 5. |
-| No volume number | `/status` shows the volume? Log: `ssh root@TV_IP tail -f /tmp/earc-volume-overlay.log`. "amp not configured" means no receiver address (set it at `/setup`). |
+| No volume number | `/status` shows the volume? Log: `ssh root@TV_IP tail -f /tmp/earc-volume-overlay.log`. "amp not configured" means no receiver address (set it at `/setup`, or leave it empty for the TV-only bar). |
+| Audio (TV) row missing | Is **Show "Audio (TV)"** ticked at `/setup`? It is off by default. Then change the input or press **Show on TV**; it appears once the TV reports a value. |
 | Info bar never appears | Auto info is off at `/setup`, or use **Show on TV** on the status page. |
 | Remote keys act oddly while the bar is up | Report it with the log; the overlay is built to leave the remote alone. |
 | App not detected on Apple TV | Home Assistant automation not firing: check its trace, the `rest_command` name, and the "app pushed" log line. |

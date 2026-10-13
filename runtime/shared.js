@@ -23,7 +23,9 @@ function readAppVersion() {
 }
 var APP_VERSION = readAppVersion();
 
-var ROW_KEYS = ['program', 'source', 'app', 'audio', 'plex', 'jellyfin', 'processing', 'video', 'colour'];
+var ROW_KEYS = ['program', 'volume', 'source', 'app', 'audio', 'tvaudio', 'plex', 'jellyfin', 'processing', 'video', 'colour'];
+var ROW_LABELS = { program: 'Sound program', volume: 'Volume', source: 'Source', app: 'App', audio: 'Audio (amp)', tvaudio: 'Audio (TV)', plex: 'Plex',
+  jellyfin: 'Jellyfin', processing: 'Processing', video: 'Video', colour: 'Colour' }; // names used on the bar, /status and /setup
 var CORNERS = ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 var FONT_SIZES = [75, 100, 125, 150];
 
@@ -111,5 +113,5 @@ function writeFileAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
-module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, ROW_LABELS: ROW_LABELS, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, writeFileAtomic: writeFileAtomic };
