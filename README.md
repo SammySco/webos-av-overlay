@@ -57,12 +57,16 @@ the receiver's volume and mute state, the sound program, the audio format actual
   LG apps it shows the codec. See [Using it without a Yamaha receiver](#using-it-without-a-yamaha-receiver).
 - **Choose and order the rows.** On the status page each row has an on/off switch and a drag handle: switch a row
   off to hide it from the TV bar, drag it to move it. The setup page has the same list of rows.
-- **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info.
+- **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info. The Show
+  on TV choice is remembered, including across a TV restart: the bar comes back about 8 seconds after the watcher
+  starts. Each row has an **i** icon (hover or click) that explains it; see [docs/INFO-ROWS.md](docs/INFO-ROWS.md).
+- **Log page** at `http://<tv>:41101/logs`: the watcher's log with a live view, a text filter and a download
+  (`/logs.txt?lines=N`). Tokens and keys are masked, and other websites cannot read it.
 - **Setup page** at `http://<tv>:41101/setup`, also opened by the **AV Overlay Settings** icon on the TV home screen.
 - **Sound program per app**: pick the receiver's sound program for Live TV, each HDMI input, webOS apps (Netflix,
   YouTube, ...), Plex players and, with a small Home Assistant automation, each Apple TV app. See
   [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md).
-- Endpoints for automation: `/info`, `/status.json`, `/tv/show`, `/tv/hide`, `/app?name=...`.
+- Endpoints for automation: `/info`, `/status.json`, `/logs.txt`, `/tv/show`, `/tv/hide`, `/app?name=...`.
 
 ## Compatibility
 

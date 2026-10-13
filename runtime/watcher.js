@@ -10,6 +10,7 @@ var dgram = require('dgram');
 var execFile = require('child_process').execFile;
 var fs = require('fs');
 var shared = require('./shared.js');
+shared.reapOrphanSubscriptions(); // helpers left by an earlier watcher that was killed hard
 
 // Settings live in SETTINGS_FILE (written by the installer and the /setup page); environment variables are fallbacks.
 var AMP_HOST = process.env.EARC_AMP_HOST || '';
@@ -62,6 +63,7 @@ var plexKey = null, plexInFlight = false;
 var jellyfinKey = null, jellyfinInFlight = false;
 var procKey = null;
 var SETTINGS_FILE = process.env.EARC_SETTINGS || '/home/root/.earc-overlay.json';
+var pinWanted = false;  // the Show on TV switch was on when the watcher last ran: put the bar back after a restart or reboot
 var tvAudio = false; // show the TV's own view of the incoming audio ("Audio (TV)"); off by default
 var autoInfo = true; // show the info bar by itself when the stream/amp info changes (toggle on the status page)
 var CORNERS = shared.CORNERS;
@@ -82,6 +84,7 @@ try {
   var loaded = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
   autoInfo = loaded.autoInfo !== false;
   tvAudio = loaded.tvAudio === true;
+  pinWanted = loaded.pinOnTv === true;
   if (CORNERS.indexOf(loaded.corner) >= 0) corner = loaded.corner;
   var _vd = loaded.volumeDisplay;
   if (_vd === 'amp' || _vd === 'percent' || _vd === 'percent1') _vd = 'numeric'; // migrate old values
@@ -112,7 +115,7 @@ function saveSoon() { // for frequent, unimportant changes (the "seen apps" list
 function saveSettings() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   try {
-    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, tvAudio: tvAudio || undefined, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
+    shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify({ autoInfo: autoInfo, pinOnTv: tvPinned || undefined, tvAudio: tvAudio || undefined, corner: corner, volumeDisplay: volumeDisplay, ampHost: AMP_HOST, ampPort: AMP_PORT,
       infoShowMs: infoShowMs, infoDelayMs: infoDelayMs, infoLayout: infoLayout, hiddenRows: hiddenRows.length ? hiddenRows : undefined, rowOrder: rowOrder.length ? rowOrder : undefined,
       volFontSize: volFontSize !== 100 ? volFontSize : undefined, infoFontSize: infoFontSize !== 100 ? infoFontSize : undefined,
       plex: plexSettings || undefined, jellyfin: jellyfinSettings || undefined, sound: soundSettings || undefined }, null, 1)); // 0600: may hold the Plex token / Jellyfin API key
@@ -362,7 +365,7 @@ function evaluateLost(prevFg) {
   // (something else, such as a system pop-up, closed the window).
   if (lastFg && lastFg.indexOf('com.webos.app.hdmi') === 0 && !restoreTimer) {
     log('bar vanished on ' + lastFg + ' with no input change; restoring it');
-    scheduleRestore('bar vanished', 2500);
+    scheduleRestore('bar vanished', 300);
   }
   // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
   // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
@@ -439,7 +442,9 @@ function infoRows(d) {
 }
 function rowHtml(r) {
   var sw = r[2] ? '<span class="rs' + (r[3] ? ' on' : '') + '"></span>' : '';
-  return '<tr><th' + (r[2] ? ' class="rt" data-k="' + r[2] + '" title="Show this row on the TV"' : '') + '><div class="rl">' + sw + '<span>' + esc(r[0]) + '</span></div></th><td>' + esc(r[1]) + '</td><td class="rh"' + (r[2] ? ' data-d="' + r[2] + '" title="Drag to reorder">&#8801;' : '>') + '</td></tr>';
+  var hk = r[2] || r[0], help = shared.ROW_HELP[hk];
+  var hi = help ? '<button type="button" class="hi" data-h="' + esc(hk) + '" title="' + esc(help) + '" aria-label="About ' + esc(r[0]) + '">i</button>' : '';
+  return '<tr><th' + (r[2] ? ' class="rt" data-k="' + r[2] + '" title="Show this row on the TV"' : '') + '><div class="rl">' + sw + '<span>' + esc(r[0]) + '</span>' + hi + '</div></th><td>' + esc(r[1]) + '</td><td class="rh"' + (r[2] ? ' data-d="' + r[2] + '" title="Drag to reorder">&#8801;' : '>') + '</td></tr>';
 }
 
 function infoPage(shownOnTv) {
@@ -452,13 +457,15 @@ function infoPage(shownOnTv) {
     'body{margin:0;padding:max(10px,1.2vh) 14px;font:16px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#111114;color:#eee;overflow:hidden}' +
     'main{max-width:720px;margin:0 auto;height:100%;display:flex;flex-direction:column;gap:max(6px,1vh)}' +
     'h1{font-size:clamp(15px,2.6vh,22px);font-weight:600;margin:0}p#meta{margin:0;color:#8b8b93;font-size:clamp(11px,1.7vh,14px)}' +
-    '.box{flex:0 0 auto}' +
+    '.box{flex:0 1 auto;min-height:0;overflow-y:auto}' +
     'table{width:100%;border-collapse:collapse;background:#1b1b20;border:1px solid #2c2c33;border-radius:12px;overflow:hidden;font-size:clamp(11px,1.95vh,16px)}' +
     'th,td{text-align:left;padding:.45em .7em;border-bottom:1px solid #2a2a30;vertical-align:top;line-height:1.25}tr:last-child th,tr:last-child td{border-bottom:0}' +
     'th{width:38%;color:#9a9aa2;font-weight:500}td{color:#f2f2f5}th.rt{cursor:pointer;-webkit-user-select:none;user-select:none}' +
     '.rl{display:flex;align-items:center;gap:.5em}.rs{flex:0 0 auto;position:relative;width:1.9em;height:1.1em;border-radius:1em;background:#3a3a42;transition:background .15s}' +
     '.rs:after{content:"";position:absolute;top:.14em;left:.14em;width:.82em;height:.82em;border-radius:50%;background:#fff;transition:left .15s}' +
     '.rs.on{background:#34a853}.rs.on:after{left:.98em}' +
+    '.hi{flex:0 0 auto;width:1.35em;height:1.35em;margin-left:.15em;padding:0;border-radius:50%;border:1px solid #55555e;background:transparent;color:#9a9aa2;font:italic 600 .85em Georgia,serif;line-height:1;cursor:help}.hi:hover,.hi:focus-visible{color:#fff;border-color:#9a9aa2}' +
+    'tr.hr td{background:#16161a;color:#b4b4bc;font-size:.92em;padding:.4em .7em .55em 1.2em}' +
     'td.rh{width:2.4em;padding:.45em .3em;text-align:center;color:#6b6b73;font-size:1.2em;line-height:1;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}tr.drag{background:#26262d}' +
     'nav{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}' +
     'footer{flex:0 0 auto;text-align:center;color:#6b6b73;font-size:clamp(10px,1.5vh,12px)}' +
@@ -480,21 +487,25 @@ function infoPage(shownOnTv) {
     '<nav><button class="tg' + (d.pinned ? ' on' : '') + '" id="tv" type="button">Show on TV<span class="sw"></span></button>' +
     '<button class="tg on" id="live" type="button">Live refresh<span class="sw"></span></button>' +
     '<button class="tg' + (autoInfo ? ' on' : '') + '" id="auto" type="button">Auto info<span class="sw"></span></button>' +
-    '<a href="/setup">Setup</a><a href="/status.json">JSON</a></nav>' +
+    '<a href="/setup">Setup</a><a href="/status.json">JSON</a><a href="/logs">Logs</a></nav>' +
     '<footer>AV Overlay' + (shared.APP_VERSION ? ' v' + esc(shared.APP_VERSION) : '') + '</footer></main>' +
     '<script>(function(){var pinned=' + (d.pinned ? 'true' : 'false') + ',live=true,timer=null,auto=' + (autoInfo ? 'true' : 'false') + ',' +
     'au=document.getElementById("auto"),tv=document.getElementById("tv"),lv=document.getElementById("live"),rows=document.getElementById("rows"),meta=document.getElementById("meta");' +
     'function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]})}' +
+    'var HELP=' + JSON.stringify(shared.ROW_HELP).replace(/</g, '\\u003c') + ',openHelp={};' +
+    'function helpRow(t){return"<tr class=\\"hr\\"><td colspan=\\"3\\">"+esc(t)+"</td></tr>"}' +
+    'function toggleHelp(b){var k=b.getAttribute("data-h"),tr=b.parentNode;while(tr&&tr.tagName!=="TR")tr=tr.parentNode;if(!tr||!HELP[k])return;var nx=tr.nextSibling;' +
+    'if(nx&&nx.classList&&nx.classList.contains("hr")){nx.parentNode.removeChild(nx);delete openHelp[k]}else{openHelp[k]=1;tr.insertAdjacentHTML("afterend",helpRow(HELP[k]))}}' +
     'function setOn(b,on){if(on)b.classList.add("on");else b.classList.remove("on")}' +
     'function showAuto(on){auto=!!on;setOn(au,auto)}' +
     'au.onclick=function(){fetch("/tv/auto?v="+(auto?"0":"1"),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){showAuto(j.autoInfo)}).catch(function(){})};' +
-    'function paint(d){if(d.title){document.title=d.title;var h=document.getElementById("ttl");if(h)h.textContent=d.title}if(d.rows){rows.innerHTML=d.rows.map(function(r){return"<tr><th"+(r[2]?" class=\\"rt\\" data-k=\\""+r[2]+"\\" title=\\"Show this row on the TV\\"":"")+"><div class=\\"rl\\">"+(r[2]?"<span class=\\"rs"+(r[3]?" on":"")+"\\"></span>":"")+"<span>"+esc(r[0])+"</span></div></th><td>"+esc(r[1])+"</td><td class=\\"rh\\""+(r[2]?" data-d=\\""+r[2]+"\\" title=\\"Drag to reorder\\">&#8801;":">")+"</td></tr>"}).join("")||"<tr><td>No data yet</td></tr>"}' +
+    'function paint(d){if(d.title){document.title=d.title;var h=document.getElementById("ttl");if(h)h.textContent=d.title}if(d.rows){rows.innerHTML=d.rows.map(function(r){var hk=r[2]||r[0],hp=HELP[hk];return"<tr><th"+(r[2]?" class=\\"rt\\" data-k=\\""+r[2]+"\\" title=\\"Show this row on the TV\\"":"")+"><div class=\\"rl\\">"+(r[2]?"<span class=\\"rs"+(r[3]?" on":"")+"\\"></span>":"")+"<span>"+esc(r[0])+"</span>"+(hp?"<button type=\\"button\\" class=\\"hi\\" data-h=\\""+esc(hk)+"\\" title=\\""+esc(hp)+"\\" aria-label=\\"About "+esc(r[0])+"\\">i</button>":"")+"</div></th><td>"+esc(r[1])+"</td><td class=\\"rh\\""+(r[2]?" data-d=\\""+r[2]+"\\" title=\\"Drag to reorder\\">&#8801;":">")+"</td></tr>"+(hp&&openHelp[hk]?helpRow(hp):"")}).join("")||"<tr><td>No data yet</td></tr>"}' +
     'if(d.autoInfo!==undefined)showAuto(d.autoInfo);' +
     'pinned=!!d.pinned;setOn(tv,pinned);if(d.updated)meta.textContent="Updated "+new Date(d.updated).toLocaleTimeString("en-AU")}' +
-    'rows.onclick=function(e){var t=e.target;while(t&&t!==rows&&!(t.getAttribute&&t.getAttribute("data-k")))t=t.parentNode;if(!t||t===rows)return;var s=t.querySelector(".rs"),on=s&&s.classList.contains("on");if(s)setOn(s,!on);' +
+    'rows.onclick=function(e){var t=e.target;if(t.classList&&t.classList.contains("hi")){toggleHelp(t);return}while(t&&t!==rows&&!(t.getAttribute&&t.getAttribute("data-k")))t=t.parentNode;if(!t||t===rows)return;var s=t.querySelector(".rs"),on=s&&s.classList.contains("on");if(s)setOn(s,!on);' +
     'fetch("/tv/row?k="+encodeURIComponent(t.getAttribute("data-k"))+"&v="+(on?"0":"1"),{cache:"no-store"}).then(function(r){return r.json()}).then(function(){poll()}).catch(function(){poll()})};' +
     'var dragRow=null;function rowOf(el){while(el&&el!==rows){if(el.tagName==="TR")return el;el=el.parentNode}return null}' +
-    'rows.addEventListener("pointerdown",function(e){var h=e.target;if(!h.getAttribute||!h.getAttribute("data-d"))return;dragRow=rowOf(h);if(!dragRow)return;dragRow.classList.add("drag");if(h.setPointerCapture)h.setPointerCapture(e.pointerId);e.preventDefault()});' +
+    'rows.addEventListener("pointerdown",function(e){var h=e.target;if(!h.getAttribute||!h.getAttribute("data-d"))return;dragRow=rowOf(h);if(!dragRow)return;openHelp={};Array.prototype.slice.call(rows.querySelectorAll("tr.hr")).forEach(function(x){x.parentNode.removeChild(x)});dragRow.classList.add("drag");if(h.setPointerCapture)h.setPointerCapture(e.pointerId);e.preventDefault()});' +
     'rows.addEventListener("pointermove",function(e){if(!dragRow)return;var tr=rowOf(document.elementFromPoint(e.clientX,e.clientY));if(!tr||tr===dragRow||!tr.querySelector("[data-d]"))return;var b=tr.getBoundingClientRect();tr.parentNode.insertBefore(dragRow,e.clientY>b.top+b.height/2?tr.nextSibling:tr)});' +
     'function endDrag(){if(!dragRow)return;dragRow.classList.remove("drag");dragRow=null;var ks=Array.prototype.map.call(rows.querySelectorAll("[data-d]"),function(c){return c.getAttribute("data-d")});' +
     'fetch("/tv/order?o="+ks.join(","),{cache:"no-store"}).then(function(){poll()}).catch(function(){poll()})}' +
@@ -593,11 +604,14 @@ var setupHandler = require('./setup.js')({
   applySettings: applySettings
 });
 
+var logsHandler = require('./logs.js')({ logFile: LOG, title: function () { return state.tvName ? state.tvName + ' - Logs' : 'AV Overlay - Logs'; } });
+
 http.createServer(function (req, res) {
   var path = req.url.split('?')[0];
   var wantsHtml = /text\/html/.test(req.headers.accept || '');
   var headers = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
   if (setupHandler(req, res, path)) return;
+  if (logsHandler(req, res, path)) return;
   if (path === '/info') {
     showInfoNow('http ' + req.socket.remoteAddress);
     // give the amp/Plex refresh a moment so the page shows current values
@@ -612,6 +626,7 @@ http.createServer(function (req, res) {
     else {
       tvPinned = /[?&]v=1(&|$)/.test(req.url); // the app reports Quick Access pin/unpin
       log('overlay reported ' + (tvPinned ? 'pinned' : 'unpinned'));
+      if (tvPinned) lastPinReport = Date.now();
       if (tvPinned && lastLaunchAt) log('app answered ' + (Date.now() - lastLaunchAt) + ' ms after the last launch');
     }
     headers['Content-Type'] = 'application/json'; res.writeHead(200, headers);
@@ -1079,6 +1094,7 @@ sock.bind(EVENT_PORT, function () { log('listening for amp events on udp/' + EVE
 function stop() {
   try { sock.close(); } catch (e) {}
   subscriptions.forEach(function (sub) { sub.stop(); });
+  shared.stopAllSubscriptions();
   process.exit(0);
 }
 // a stray exception should not take the overlay down until the next reboot
@@ -1086,6 +1102,21 @@ process.on('uncaughtException', function (e) { log('uncaught exception: ' + (e &
 process.on('unhandledRejection', function (e) { log('unhandled rejection: ' + (e && e.stack || e)); });
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
+process.on('exit', function () { try { shared.stopAllSubscriptions(); } catch (e) {} });
+
+// Show on TV is a saved preference: any change of tvPinned (the page switch, Quick Access, the remote dismissing the bar) is written
+// to the settings file, and a restart or TV reboot puts the bar back. The TV may still be booting, so retry until the app confirms.
+var savedPin = pinWanted, lastPinReport = 0;
+if (pinWanted) tvPinned = true; // the bar stays wanted (and saved as on) until the user switches it off
+var pinSaver = setInterval(function () { if (tvPinned !== savedPin) { savedPin = tvPinned; saveSettings(); } }, 2000);
+if (pinSaver.unref) pinSaver.unref();
+function restorePin(attempt) {
+  if (!pinWanted || lastPinReport || (attempt > 0 && !tvPinned)) return; // done, or the user switched it off meanwhile
+  log('restoring the pinned bar after a restart' + (attempt ? ' (attempt ' + (attempt + 1) + ')' : ''));
+  showInfoNow('restore pin after restart', true);
+  if (attempt < 8) setTimeout(function () { if (!lastPinReport && tvPinned) restorePin(attempt + 1); }, 15000);
+}
+if (pinWanted) setTimeout(function () { restorePin(0); }, 8000);
 
 log('service starting (yamaha ' + (AMP_HOST || 'not configured') + ', with signal info)');
 // the app can be removed from the Homebrew Channel without any uninstall hook; clean up after ourselves then (TV only)
