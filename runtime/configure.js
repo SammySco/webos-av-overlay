@@ -61,10 +61,10 @@ function set(input) {
     var token = v.plexToken || (cur && cur.url === v.plexUrl ? cur.token : '');
     if (!/^https?:\/\/[^/ ]+/.test(v.plexUrl)) { console.error('invalid plex url'); process.exit(2); }
     if (!token) { console.error('plex token needed'); process.exit(2); }
-    s.plex = { url: v.plexUrl, token: token, player_ip: v.plexPlayer || undefined };
+    s.plex = { url: v.plexUrl, token: token, player_ip: v.plexPlayer || undefined, verifyTls: cur && cur.url === v.plexUrl && cur.verifyTls === true ? true : undefined };
   } else if (v.plexPlayer && plexNow(s)) {
     var p = plexNow(s);
-    s.plex = { url: p.url, token: p.token, player_ip: v.plexPlayer };
+    s.plex = { url: p.url, token: p.token, player_ip: v.plexPlayer, verifyTls: p.verifyTls === true ? true : undefined };
   }
   shared.writeFileAtomic(SETTINGS_FILE, JSON.stringify(s, null, 1));
   console.log('settings saved');

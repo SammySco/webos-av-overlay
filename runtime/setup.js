@@ -29,7 +29,10 @@ function readJson(req, cb) {
   req.on('end', function () {
     if (done) return;
     done = true;
-    try { cb(null, JSON.parse(body || '{}')); } catch (e) { cb(new Error('bad json')); }
+    var j;
+    try { j = JSON.parse(body || '{}'); } catch (e) { return cb(new Error('bad json')); }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return cb(new Error('bad json')); // null, a number or a list is not a settings object
+    cb(null, j);
   });
 }
 
@@ -380,7 +383,8 @@ module.exports = function createSetup(ctx) {
     if (path === '/setup/save' && req.method === 'POST') {
       readJson(req, function (err, b) {
         if (err) return send(res, err.status || 400, { ok: false, error: err.message });
-        var v = validate(b);
+        var v;
+        try { v = validate(b); } catch (e) { return send(res, 400, { ok: false, error: 'Invalid settings' }); }
         if (v.error) return send(res, 400, { ok: false, error: v.error });
         var r = ctx.applySettings(v.value);
         send(res, r && r.error ? 400 : 200, r && r.error ? { ok: false, error: r.error } : { ok: true });
@@ -390,6 +394,7 @@ module.exports = function createSetup(ctx) {
     if (path === '/setup/test' && req.method === 'POST') {
       readJson(req, function (err, b) {
         if (err) return send(res, err.status || 400, { ok: false, error: err.message });
+        try {
         if (b.kind === 'amp') testAmp(String(b.host || '').trim(), b.port, function (e, info) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, model: info.model, version: info.version });
         });
@@ -400,6 +405,7 @@ module.exports = function createSetup(ctx) {
           send(res, 200, e ? { ok: false, error: e.message } : { ok: true, sessions: info.sessions });
         });
         else send(res, 400, { ok: false, error: 'unknown test' });
+        } catch (e) { if (!res.headersSent) send(res, 400, { ok: false, error: 'Invalid request' }); }
       });
       return true;
     }

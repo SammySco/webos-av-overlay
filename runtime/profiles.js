@@ -365,6 +365,7 @@ module.exports = function createProfiles(ctx) {
       if (rules.length > RULES_MAX) return { error: 'At most ' + RULES_MAX + ' rules' };
       out.rules = [];
       for (var i = 0; i < rules.length; i++) {
+        if (!rules[i] || typeof rules[i] !== 'object') continue;
         var app = String(rules[i].app || '').trim();
         if (!app) continue;
         if (app.length > 60 || /[\u0000-\u001f]/.test(app)) return { error: 'Rule ' + (i + 1) + ': the app name is not valid' };

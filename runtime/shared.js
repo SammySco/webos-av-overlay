@@ -77,16 +77,23 @@ function getJson(o, cb) {
         body += c;
       });
       res.on('end', function () { var j = null; try { j = JSON.parse(body); } catch (e) {} done(null, j, res.statusCode); });
+      // a connection cut off mid-body must still end the request, or callers' in-flight flags would stay set for good
+      res.on('error', function (e) { done(e); });
+      res.on('aborted', function () { done(new Error('connection closed early')); });
+      res.on('close', function () { done(new Error('connection closed early')); }); // ignored when 'end' already reported
     });
     req.on('timeout', function () { req.destroy(new Error('timeout')); });
     req.on('error', function (e) { done(e); });
   } catch (e) { done(e); }
 }
 
+// Quote a string for the shell (script -c takes one command string).
+function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+
 // Run luna-send once (it needs a pty on these TVs, hence script(1)); cb(parsedJson | null)
 function lunaJson(luna, uri, params, cb) {
   if (typeof params === 'function') { cb = params; params = '{}'; }
-  execFile('/usr/bin/script', ['-q', '-c', luna + ' -n 1 -f ' + uri + " '" + (params || '{}') + "'", '/dev/null'], { timeout: 4000 },
+  execFile('/usr/bin/script', ['-q', '-c', shq(luna) + ' -n 1 -f ' + shq(uri) + ' ' + shq(params || '{}'), '/dev/null'], { timeout: 4000 },
     function (err, out) {
       if (err) return cb(null);
       var text = String(out).replace(/\r/g, ''), i = text.indexOf('{');
@@ -105,9 +112,15 @@ function reapOrphanSubscriptions() {
   try { require('child_process').execSync("pkill -f 'script -q -f -c .*luna-send.* -i .?luna://' 2>/dev/null; true", { timeout: 3000 }); } catch (e) {}
 }
 function lunaSubscribe(luna, uri, params, onJson, log, name) {
-  var proc = null, stopped = false;
+  var proc = null, stopped = false, restarting = false;
+  // 'exit' is not guaranteed after a failed spawn, so both it and 'error' come here; only one restart is ever pending
+  function restartSoon() {
+    if (stopped || restarting) return;
+    restarting = true;
+    setTimeout(function () { restarting = false; if (!stopped) start(); }, 5000);
+  }
   function start() {
-    var cmd = luna + " -i '" + uri + "' '" + params + "'";
+    var cmd = shq(luna) + ' -i ' + shq(uri) + ' ' + shq(params);
     proc = spawn('/usr/bin/script', ['-q', '-f', '-c', cmd, '/dev/null']);
     var pending = '';
     proc.stdout.on('data', function (chunk) {
@@ -120,12 +133,12 @@ function lunaSubscribe(luna, uri, params, onJson, log, name) {
         try { onJson(JSON.parse(line)); } catch (e) { log(name + ' parse error: ' + e.message); }
       });
     });
-    proc.on('error', function (e) { log(name + ' subscription failed: ' + e.message); });
+    proc.on('error', function (e) { log(name + ' subscription failed: ' + e.message); proc = null; restartSoon(); });
     proc.on('exit', function (code) {
       proc = null;
       if (stopped) return;
       log(name + ' subscription ended (' + code + '), restarting in 5s');
-      setTimeout(start, 5000);
+      restartSoon();
     });
   }
   start();
@@ -142,5 +155,5 @@ function writeFileAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
-module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, ROW_LABELS: ROW_LABELS, ROW_HELP: ROW_HELP, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, lunaJson: lunaJson,
+module.exports = { APP_VERSION: APP_VERSION, ROW_KEYS: ROW_KEYS, ROW_LABELS: ROW_LABELS, ROW_HELP: ROW_HELP, CORNERS: CORNERS, FONT_SIZES: FONT_SIZES, getJson: getJson, shq: shq, lunaJson: lunaJson,
   lunaSubscribe: lunaSubscribe, stopAllSubscriptions: stopAllSubscriptions, reapOrphanSubscriptions: reapOrphanSubscriptions, writeFileAtomic: writeFileAtomic };

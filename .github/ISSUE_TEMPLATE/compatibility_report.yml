@@ -69,8 +69,8 @@ body:
     id: overlay_version
     attributes:
       label: AV Overlay version
-      description: For example 2.4.3.
-      placeholder: 2.4.3
+      description: For example 2.5.0.
+      placeholder: 2.5.0
   - type: checkboxes
     id: features
     attributes:

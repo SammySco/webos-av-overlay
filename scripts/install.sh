@@ -39,7 +39,14 @@ scp_tv() {
 install_ipk() {
 	echo "Installing $2..."
 	scp_tv "$1" "$REMOTE_IPK"
-	ssh_tv_tty "luna-send -w 60000 -i luna://com.webos.appInstallService/dev/install '{\"id\":\"com.ares.defaultName\",\"ipkUrl\":\"$REMOTE_IPK\",\"subscribe\":true}' | grep -oE '\"state\":\"[^\"]*\"|\"errorText\":\"[^\"]*\"' | uniq"
+	# the remote pipeline's exit status is uniq's, so judge the install by its output instead
+	OUT=$(ssh_tv_tty "luna-send -w 60000 -i luna://com.webos.appInstallService/dev/install '{\"id\":\"com.ares.defaultName\",\"ipkUrl\":\"$REMOTE_IPK\",\"subscribe\":true}' | grep -oE '\"state\":\"[^\"]*\"|\"errorText\":\"[^\"]*\"' | uniq") || true
+	printf '%s\n' "$OUT"
+	case "$OUT" in
+		*errorText\":\"[!\"]*) echo "Installing $2 failed (see the error above); nothing was changed after this point." >&2; exit 1;;
+		*state*) ;;
+		*) echo "No install result came back for $2; check the TV and try again." >&2; exit 1;;
+	esac
 }
 
 IPK=$(ls build/${APP_ID}_*_all.ipk 2>/dev/null | head -n 1 || true)
@@ -159,6 +166,14 @@ if [ "$INTERACTIVE" = 1 ]; then
 		[ -n "$CORNER" ] || CORNER=$DEF_CORNER
 	fi
 fi
+
+# stop the running watcher before the settings file is rewritten: it could otherwise save its old in-memory copy over the new one
+ssh_tv '
+for f in /var/lib/earc-volume-overlay/watcher.pid /tmp/earc-volume-overlay.pid; do
+	pid=$(cat "$f" 2>/dev/null || true)
+	if [ -n "$pid" ] && tr "\000" " " < "/proc/$pid/cmdline" 2>/dev/null | grep -q watcher.js; then kill "$pid" 2>/dev/null || true; fi
+done
+sleep 1'
 
 # values go to the TV on stdin so the token never appears on a command line
 {
