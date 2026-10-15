@@ -69,6 +69,18 @@ On older Home Assistant versions use `platform:` and `service:` in place of `tri
 Also make sure `configuration.yaml` has a single `rest_command:` block (a second one replaces the first), then
 restart Home Assistant.
 
+The last app name sent is kept across a watcher restart (a redeploy or an update), so the right rule still applies
+afterwards; it is forgotten when the TV itself restarts, until the automation sends it again.
+
+### Dashboard buttons and the status page
+
+- To show or hide the bar from a dashboard, call the overlay from Home Assistant itself with a `rest_command` (for
+  example `url: "http://TV_IP:41101/tv/show"`, and `/tv/hide`, `/info`). The control addresses refuse background
+  requests from a browser on another site, so a card that fetches them from the browser gets a 403; a
+  `rest_command` is sent by Home Assistant and is not affected.
+- The status page works in a **Webpage (iframe) card**: `http://TV_IP:41101/status`. Its own buttons (Show on TV,
+  Live, Auto info, row switches and ordering) work inside the frame.
+
 ## 3. Optional: "Spotify on Apple TV" script
 
 Spotify Connect to the Apple TV only works while the Spotify tvOS app is running, and the Apple TV must be on

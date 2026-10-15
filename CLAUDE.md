@@ -49,7 +49,11 @@ for release candidates, tagging and the checks to run after a tag.
   (3 `script` processes); 15 s and 10 s safety polls remain.
 - On-demand: `GET /info` (TV bar plus an HTML page in browsers, JSON otherwise), `/status` (live page), `/status.json`,
   `/status.rows.json`, `SIGUSR1` to the watcher pid; opening the app pins the bar and opening it again hides it.
-  Everything is served on port 41101.
+  `/logs` (live view, filter, download) and `/logs.txt?lines=N` read the log and its rotated `.1` file, redacting
+  token and key shapes. Everything is served on port 41101.
+- Show on TV is saved as `pinOnTv` in the settings file; at start-up the watcher restores the pinned bar after 8 s
+  (retrying every 15 s, up to 8 times, until the app reports its pin state). A pinned bar that vanishes (switching
+  between native apps and Live TV) is restored after 300 ms.
 - Settings: `/home/root/.earc-overlay.json` on the TV (0600), written atomically (an unreadable file is copied to
   `.earc-overlay.json.bad`) by `scripts/install.sh` and the `/setup` page. `/setup` POSTs reject cross-site Origins and
   non-JSON bodies; the mutating GETs (`/info`, `/app`, `/tv/*`) refuse cross-site requests (`Sec-Fetch-Site`), and only
@@ -66,7 +70,8 @@ for release candidates, tagging and the checks to run after a tag.
 
 ## Sound program per app (`profiles.js`)
 - Context key priority: pushed Apple TV app name (`GET /app?name=`), then Plex player product, then the LG foreground
-  app (Live TV, HDMI n or webOS app title). A pushed Apple TV app name expires after 12 h without a refresh.
+  app (Live TV, HDMI n or webOS app title). A pushed Apple TV app name expires after 12 h without a refresh. It is kept in `/tmp/earc-pushed-app.json`, so it
+  survives a watcher restart but not a TV reboot.
 - Rules are edited on `/setup`; the first match wins. The receiver is only commanded when enabled, its input equals the
   TV input and the program differs.
 - Spotify guard: if the Apple TV is playing Spotify and the receiver is idle on its own Spotify input (about 6 s), the

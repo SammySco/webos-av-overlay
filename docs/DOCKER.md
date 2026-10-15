@@ -326,6 +326,9 @@ The new image is built and the container is replaced with zero downtime
 
 ## Logs and troubleshooting
 
+The watcher's log is also in the browser at `http://<docker-host>:41101/logs` (live view, text filter, download as
+`/logs.txt`; tokens and keys are masked).
+
 ```bash
 # Follow live logs
 docker compose logs -f
@@ -399,5 +402,6 @@ If that fails, check:
 | TV video/source info | watcher → SSH → `luna-send -i` subscribe on TV |
 | Audio (TV) row (optional) | watcher → SSH → `luna-send` on TV (`audio/tv/getAudioInputProperty`, and on HDMI `extinputs.hdmi/getHDMIDiagnosticsInfo`) every 10 s while on |
 | Foreground app / running apps | watcher → SSH → `luna-send -i` subscribe on TV (15 s and 10 s safety polls) |
-| Pin-state / key forwarding | WebOS app → HTTP → `WATCHER_URL:41101` |
+| Pin-state / key forwarding | WebOS app → HTTP → `WATCHER_URL:41101` (the only paths that send a CORS header) |
+| Show on TV after a restart | remembered in the settings volume (`pinOnTv`); the bar is restored about 8 s after the container starts |
 | Settings page | any browser → `http://<docker-host>:41101/setup` |

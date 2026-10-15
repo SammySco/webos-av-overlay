@@ -96,11 +96,14 @@ The installer builds two packages, installs them (the overlay and the **AV Overl
 Then it starts the service. Check it:
 - Open `http://TV_IP:41101/status`. It should show the sound program, volume, audio and video.
 - Change the receiver volume. A number should appear bottom-right on the TV.
-- Press **Show on TV** on the status page. The info bar should appear.
+- Press **Show on TV** on the status page. The info bar should appear and stay until you press it again; the choice
+  is remembered, so the bar comes back after a TV restart too.
+- Open `http://TV_IP:41101/logs` to see the watcher's log (live view, text filter, download as text).
 - Open `http://TV_IP:41101/setup` (or the **AV Overlay** icon on the TV's home screen) to change anything later.
 
 **Choose and order the bar's rows.** On the status page each row has an on/off switch (shows it on the TV bar or not)
-and a drag handle (moves it). The same switches are in the **Rows shown on the info bar** list at `/setup`.
+and a drag handle (moves it). The same switches are in the **Rows shown on the info bar** list at `/setup`. The **i**
+icon beside each row explains what it shows (see [INFO-ROWS.md](INFO-ROWS.md)).
 
 **Audio (TV) row (optional).** At `/setup` under Display, tick **Show "Audio (TV)"** to add a line with the audio the
 TV itself sees on its input: codec, channels and sample rate on an HDMI input (an Apple TV sends 5.1 as 8 channels, so
@@ -195,9 +198,13 @@ The address can be changed any time from the app's menu → **Change TV address*
 ## 12. Hardening and housekeeping
 
 - Telnet off (section 4), TV and receiver on fixed addresses, Home Assistant and the TV on the same network.
-- The status and setup pages have **no password**: keep them on your home network and do not expose port 41101 to
-  the internet. Saving settings from a web page on another site is refused (the request's Origin must match the TV's
-  address, and the body must be JSON); curl and scripts are not affected.
+- The status, setup and log pages have **no password**: keep them on your home network and do not expose port 41101
+  to the internet. Saving settings from a web page on another site is refused (the request's Origin must match the
+  TV's address, and the body must be JSON). The control addresses (`/info`, `/app`, `/tv/show`, `/tv/hide` and the
+  other `/tv/...` ones) refuse requests a browser marks as cross-site (an image, script or frame on another site), so
+  a web page cannot switch things on the TV behind your back. Opening the address yourself, Home Assistant's
+  `rest_command`, curl and scripts are not affected, and the status page can still sit in a Home Assistant iframe.
+- The log page masks tokens and keys before showing a line, and other websites cannot read it.
 - Plex and Jellyfin certificates are not verified by default, because home servers usually use self-signed ones. To
   verify, add `"verifyTls": true` to the `plex` or `jellyfin` block in `/home/root/.earc-overlay.json`.
 - If the settings file ever becomes unreadable, the watcher keeps a copy as `/home/root/.earc-overlay.json.bad`
@@ -212,10 +219,13 @@ The address can be changed any time from the app's menu → **Change TV address*
 |---|---|
 | Installer cannot connect | `ssh root@TV_IP` works by hand? SSH enabled in the Homebrew Channel? Correct key? |
 | "No Yamaha receiver answered" | Receiver address, Network Standby on, same network, API test from section 5. |
-| No volume number | `/status` shows the volume? Log: `ssh root@TV_IP tail -f /tmp/earc-volume-overlay.log`. "amp not configured" means no receiver address (set it at `/setup`, or leave it empty for the TV-only bar). |
+| Anything | Start with the log: `http://TV_IP:41101/logs`, or `ssh root@TV_IP tail -f /tmp/earc-volume-overlay.log`. |
+| No volume number | `/status` shows the volume? Check the log. "amp not configured" means no receiver address (set it at `/setup`, or leave it empty for the TV-only bar). |
 | Audio (TV) row missing | Is **Show "Audio (TV)"** ticked at `/setup`? It is off by default. Then change the input or press **Show on TV**; it appears once the TV reports a value. |
 | Info bar never appears | Auto info is off at `/setup`, or use **Show on TV** on the status page. |
-| Remote keys act oddly while the bar is up | Report it with the log; the overlay is built to leave the remote alone. |
+| Remote keys act oddly while the bar is up | Report it with the log; the overlay is built to leave the remote alone. The Magic Remote pointer should work over native apps with the bar up; on an HDMI input it cannot click anything (HDMI-CEC only passes key presses). |
+| Pinned bar gone after a restart | It comes back about 8 seconds after the watcher starts. If not, press **Show on TV** again and check the log. |
+| A button on another web page or dashboard does nothing (403 in the log) | Expected when the page calls the control addresses in the background: they refuse cross-site browser requests. Use Home Assistant's `rest_command`, curl, a plain link, or the status page in an iframe. |
 | App not detected on Apple TV | Home Assistant automation not firing: check its trace, the `rest_command` name, and the "app pushed" log line. |
 | Receiver changes at odd times | Check the "Right now" line and the rules at `/setup`, and turn the feature off to compare. |
 | Nothing works after a TV update | Root may have been removed; check the Homebrew Channel, see webosbrew.org. |

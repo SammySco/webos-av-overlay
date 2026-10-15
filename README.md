@@ -59,14 +59,19 @@ the receiver's volume and mute state, the sound program, the audio format actual
   off to hide it from the TV bar, drag it to move it. The setup page has the same list of rows.
 - **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info. The Show
   on TV choice is remembered, including across a TV restart: the bar comes back about 8 seconds after the watcher
-  starts. Each row has an **i** icon (hover or click) that explains it; see [docs/INFO-ROWS.md](docs/INFO-ROWS.md).
+  starts. A pinned bar also comes back after you switch between Live TV and apps on the TV. Each row has an **i** icon
+  (hover or click) that explains it; see [docs/INFO-ROWS.md](docs/INFO-ROWS.md).
+- **Magic Remote friendly**: the pointer keeps working over native apps while the bar is on screen, and pointer
+  movement does not dismiss the bar.
 - **Log page** at `http://<tv>:41101/logs`: the watcher's log with a live view, a text filter and a download
   (`/logs.txt?lines=N`). Tokens and keys are masked, and other websites cannot read it.
 - **Setup page** at `http://<tv>:41101/setup`, also opened by the **AV Overlay Settings** icon on the TV home screen.
 - **Sound program per app**: pick the receiver's sound program for Live TV, each HDMI input, webOS apps (Netflix,
   YouTube, ...), Plex players and, with a small Home Assistant automation, each Apple TV app. See
   [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md).
-- Endpoints for automation: `/info`, `/status.json`, `/logs.txt`, `/tv/show`, `/tv/hide`, `/app?name=...`.
+- Endpoints for automation: `/info`, `/status.json`, `/logs.txt`, `/tv/show`, `/tv/hide`, `/app?name=...`. They work
+  from Home Assistant, curl and scripts; a web page on another site cannot use them (see
+  [Change settings later](#change-settings-later)).
 
 ## Compatibility
 
@@ -332,11 +337,15 @@ Every answer can be supplied as an environment variable instead, and `EARC_NONIN
 Settings are stored on the TV in `/home/root/.earc-overlay.json` (readable by root only) and can be changed any
 time at `/setup` or from the TV home screen.
 
-The setup and status pages have no password and are meant for your home network only.
-
 ## Change settings later
 
 Open **AV Overlay Settings** on the TV home screen, or browse to `http://<tv>:41101/setup`. Changes apply immediately.
+
+The setup, status and log pages have no password and are meant for your home network only; do not expose port 41101
+to the internet. A web page on another site cannot change anything: saving settings needs a JSON request from the
+TV's own pages, and the control addresses (`/info`, `/app`, `/tv/...`) refuse requests that a browser marks as coming
+from another site. Opening one of those addresses yourself (a link or a bookmark), Home Assistant, curl and scripts
+still work. The status page can still be embedded in a Home Assistant iframe card.
 
 ## Choose and order the info bar rows
 
@@ -413,7 +422,8 @@ picks up where you left off; delete them with `scripts/uninstall.sh --purge`. Th
 
 ## Troubleshooting
 
-On the TV, `tail -f /tmp/earc-volume-overlay.log`. A healthy start looks like:
+Open `http://<tv>:41101/logs` for the watcher's log (live view, filter and download), or on the TV run
+`tail -f /tmp/earc-volume-overlay.log`. A healthy start looks like:
 
 ```text
 service starting (yamaha 192.168.1.50, with signal info)
@@ -428,6 +438,10 @@ watching 192.168.1.50 at 42:false
   the last value; `/status.json` has `reachable` and `lastOk`. The volume popup simply does not appear.
 - Remote channel up/down while the info bar is on screen: the first key press dismisses the bar and is
   passed on to Live TV, so one press still changes the channel.
+- Magic Remote pointer: it works over native apps with the bar showing. On an HDMI input (an Apple TV, for example)
+  the pointer cannot click anything; that is a limit of HDMI-CEC, which only passes key presses.
+- After a watcher restart (a redeploy, an update) a pinned bar comes back by itself after about 8 seconds, and the last
+  Apple TV app sent by Home Assistant is remembered until the TV itself restarts.
 
 ## How it works
 
