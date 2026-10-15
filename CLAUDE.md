@@ -52,7 +52,8 @@ for release candidates, tagging and the checks to run after a tag.
   Everything is served on port 41101.
 - Settings: `/home/root/.earc-overlay.json` on the TV (0600), written atomically (an unreadable file is copied to
   `.earc-overlay.json.bad`) by `scripts/install.sh` and the `/setup` page. `/setup` POSTs reject cross-site Origins and
-  non-JSON bodies. Plex/Jellyfin TLS is unverified unless `"verifyTls": true`. No baked-in receiver address: with none
+  non-JSON bodies; the mutating GETs (`/info`, `/app`, `/tv/*`) refuse cross-site requests (`Sec-Fetch-Site`), and only
+  `/tv/pinstate`, `/tv/qa` and `/tv/key` send a CORS header. Plex/Jellyfin TLS is unverified unless `"verifyTls": true`. No baked-in receiver address: with none
   set the watcher idles. Plex: `/home/root/.earc-plex.json`; the token is private.
 - Log: `/tmp/earc-volume-overlay.log` (dedupes repeats, rotates at 256 KB).
 - Code layout (`runtime/`): `watcher.js` (main), `profiles.js` (sound rules), `setup.js` (/setup), `configure.js`
