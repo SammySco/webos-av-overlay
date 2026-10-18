@@ -202,11 +202,19 @@ will set it via the `/setup` page after the container is running.
 > the Docker container runs the watcher:
 >
 > ```bash
-> ssh root@192.168.1.50 'rm -f /var/lib/webosbrew/init.d/91-earc-volume-overlay'
+> ssh root@192.168.1.50 'rm -f /var/lib/webosbrew/init.d/91-earc-volume-overlay; kill $(cat /tmp/earc-volume-overlay.pid)'
 > ```
+>
+> The installer also starts the TV's own watcher. That command removes the boot hook and stops the running
+> watcher (its pid is in `/tmp/earc-volume-overlay.pid`), so only the Docker watcher is left. `scripts/docker/install.sh`
+> does the same for you if you answer yes to "Make Docker the primary watcher?".
 >
 > The WebOS overlay app (the visual layer) stays installed — only the
 > background watcher process is moved to Docker.
+
+> **The AV Overlay Settings app on the TV** looks for the watcher at `http://127.0.0.1:41101`, which is the TV itself,
+> so with Docker it says "The overlay service is not running on this TV". Tap **Try again / change URL** and enter
+> `http://<docker-host>:41101` once; it remembers it. Or just use `http://<docker-host>:41101/setup` in a browser.
 
 ---
 
@@ -215,6 +223,10 @@ will set it via the `/setup` page after the container is running.
 ```bash
 docker compose up -d --build
 ```
+
+To use the prebuilt image instead of building (published for each tagged release, amd64, arm64 and arm/v7), replace
+`build: .` in `docker-compose.yml` with `image: ghcr.io/sammysco/webos-av-overlay:latest` and run
+`docker compose up -d`. Pin a version (`:2.5.0`) if you want updates to be deliberate.
 
 This builds the image (≈ 30 s the first time) and starts the container in the
 background.
@@ -319,12 +331,16 @@ git pull
 docker compose up -d --build
 ```
 
-The new image is built and the container is replaced with zero downtime
-(the old container keeps running until the new one is ready).
+The new image is built and the container is replaced; expect a few seconds with no overlay while it restarts. Redeploy
+the TV apps too (`TV_HOST=root@TV_IP sh scripts/deploy.sh`): the apps and the watcher are versioned together, and the
+version shows at the bottom of `/status` and `/setup`. Your settings live in the `overlay-data` volume and are kept.
 
 ---
 
 ## Logs and troubleshooting
+
+More symptoms and fixes are in [TROUBLESHOOTING.md](TROUBLESHOOTING.md). The watcher's log is also in the browser at `http://<docker-host>:41101/logs` (live view, text filter, download as
+`/logs.txt`; tokens and keys are masked).
 
 ```bash
 # Follow live logs
@@ -399,5 +415,6 @@ If that fails, check:
 | TV video/source info | watcher → SSH → `luna-send -i` subscribe on TV |
 | Audio (TV) row (optional) | watcher → SSH → `luna-send` on TV (`audio/tv/getAudioInputProperty`, and on HDMI `extinputs.hdmi/getHDMIDiagnosticsInfo`) every 10 s while on |
 | Foreground app / running apps | watcher → SSH → `luna-send -i` subscribe on TV (15 s and 10 s safety polls) |
-| Pin-state / key forwarding | WebOS app → HTTP → `WATCHER_URL:41101` |
+| Pin-state / key forwarding / Quick Access | WebOS app → HTTP → `WATCHER_URL` (`/tv/pinstate`, `/tv/key`, `/tv/qa`; with `/status.json` for the settings app, the only paths that send a CORS header) |
+| Show on TV after a restart | remembered in the settings volume (`pinOnTv`); the bar is restored about 8 s after the container starts |
 | Settings page | any browser → `http://<docker-host>:41101/setup` |

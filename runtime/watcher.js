@@ -606,10 +606,14 @@ var setupHandler = require('./setup.js')({
 
 var logsHandler = require('./logs.js')({ logFile: LOG, title: function () { return state.tvName ? state.tvName + ' - Logs' : 'AV Overlay - Logs'; } });
 
+var APP_PATHS = ['/tv/pinstate', '/tv/qa', '/tv/key', '/status.json'];
 http.createServer(function (req, res) {
   var path = req.url.split('?')[0];
   var wantsHtml = /text\/html/.test(req.headers.accept || '');
-  var headers = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
+  var headers = { 'Cache-Control': 'no-store' };
+  // The overlay app (an on-TV page, a different origin) calls the /tv paths, and the settings app probes /status.json
+  // before opening /setup; both need to read the answer.
+  if (APP_PATHS.indexOf(path) >= 0) headers['Access-Control-Allow-Origin'] = '*';
   if (setupHandler(req, res, path)) return;
   if (logsHandler(req, res, path)) return;
   if (path === '/info') {

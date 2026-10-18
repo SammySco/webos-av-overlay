@@ -24,6 +24,10 @@ requirements first, because the biggest one (a rooted TV) decides whether this p
 - **`ssh` and `scp`** (included with macOS, Linux and Windows 10/11 OpenSSH).
 - **A POSIX shell**: macOS or Linux Terminal, or on Windows **Git Bash** (installed with Git for Windows) or WSL.
   The installer is a shell script and its questions need a real terminal. PowerShell alone will not run it.
+- **Windows without Git or Node**: unpack the release archive and use `Install-AVOverlay.cmd` (section 6). It needs
+  only the built-in OpenSSH Client. Building from source in Git Bash can fail if Node lives under a folder with a space
+  in its name, such as `C:\Program Files`.
+- After installing any of these, open a **new** terminal so it sees the updated PATH.
 
 ### What the overlay does not need
 No cloud account, no LG developer account, and nothing installed on the receiver or the Apple TV.
@@ -64,6 +68,10 @@ In outline:
 4. In the Homebrew Channel settings **turn off Telnet** (it is an open root shell on your network) and reboot.
 5. Give the TV a **fixed IP address** (DHCP reservation in your router).
 
+**New computer or reinstalled Windows?** The key lives on the computer, not the TV. Copy the old `~/.ssh` folder
+(`id_ed25519` and `id_ed25519.pub`) to the same place on the new computer, or make a new key (step 1) and add its
+public half to the TV (step 2). `Permission denied (publickey,password)` means the TV does not know this computer's key.
+
 ## 5. Prepare the Yamaha receiver
 
 1. Connect the receiver to the network and give it a **fixed IP address**.
@@ -84,7 +92,7 @@ just double-click **`Install-AVOverlay.cmd`**: it uses Windows PowerShell and th
 Git or Node, and asks the same questions. From a terminal:
 `powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -TvHost root@TV_IP` (add `-SshKey C:\path\to\key` if your key is not the default).
 
-The installer builds two packages, installs them (the overlay and the **AV Overlay** settings icon), and asks:
+The installer builds two packages, installs them (the **eARC Volume Overlay** app and the **AV Overlay Settings** icon), and asks:
 - **Receiver IP address**: it checks from the TV that a Yamaha receiver answers there. Press **Enter to skip** if you
   have no Yamaha receiver (see "Without a receiver" below); type `none` to remove a saved one.
 - **Plex** (optional): server URL, token (typing is hidden) and the player's IP. Press `n` to skip.
@@ -96,11 +104,18 @@ The installer builds two packages, installs them (the overlay and the **AV Overl
 Then it starts the service. Check it:
 - Open `http://TV_IP:41101/status`. It should show the sound program, volume, audio and video.
 - Change the receiver volume. A number should appear bottom-right on the TV.
-- Press **Show on TV** on the status page. The info bar should appear.
-- Open `http://TV_IP:41101/setup` (or the **AV Overlay** icon on the TV's home screen) to change anything later.
+- Press **Show on TV** on the status page. The info bar should appear and stay until you press it again; the choice
+  is remembered, so the bar comes back after a TV restart too.
+- Open `http://TV_IP:41101/logs` to see the watcher's log (live view, text filter, download as text).
+- Open `http://TV_IP:41101/setup` (or the **AV Overlay Settings** icon on the TV's home screen) to change anything
+  later. The settings app should open the setup page and show `AV Overlay v<version>` at the bottom.
+- Opening the **eARC Volume Overlay** app itself shows a page with Enable, Disable and Test overlay and the message
+  `Denied method call "exec"`. That is expected: webOS does not let that app call the Homebrew Channel's root
+  service. The installer has already enabled and started the watcher, so ignore those buttons.
 
 **Choose and order the bar's rows.** On the status page each row has an on/off switch (shows it on the TV bar or not)
-and a drag handle (moves it). The same switches are in the **Rows shown on the info bar** list at `/setup`.
+and a drag handle (moves it). The same switches are in the **Rows shown on the info bar** list at `/setup`. The **i**
+icon beside each row explains what it shows (see [INFO-ROWS.md](INFO-ROWS.md)).
 
 **Audio (TV) row (optional).** At `/setup` under Display, tick **Show "Audio (TV)"** to add a line with the audio the
 TV itself sees on its input: codec, channels and sample rate on an HDMI input (an Apple TV sends 5.1 as 8 channels, so
@@ -112,8 +127,9 @@ receiver question. To script it, leave `EARC_AMP_HOST` unset and set `EARC_NONIN
 also clear the receiver address at `/setup`. Then use **Show on TV**. The bar shows Source, App, Audio (TV),
 Plex or Jellyfin, Video and Colour. See the README section "Using it without a Yamaha receiver" for the limits.
 
-Optional on the TV: *long-press an unused number key → assign it to the AV Overlay app* (LG's Quick Access). Opening
-the app that way pins the bar; opening it again hides it.
+Optional on the TV: *long-press an unused number key → assign it to the eARC Volume Overlay app* (LG's Quick Access).
+Pressing that key pins the bar; pressing it again hides it. If it opens the Enable/Disable page instead, see
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 Updates later: `git pull`, then redeploy with `TV_HOST=root@TV_IP sh scripts/deploy.sh` (your settings are kept).
 Removal: `sh scripts/uninstall.sh` (add `--purge` to delete your settings too). Removing the app from the Homebrew Channel also works: the watcher cleans up its boot hook and pid files about 90 seconds later and keeps your settings.
@@ -195,9 +211,12 @@ The address can be changed any time from the app's menu → **Change TV address*
 ## 12. Hardening and housekeeping
 
 - Telnet off (section 4), TV and receiver on fixed addresses, Home Assistant and the TV on the same network.
-- The status and setup pages have **no password**: keep them on your home network and do not expose port 41101 to
-  the internet. Saving settings from a web page on another site is refused (the request's Origin must match the TV's
-  address, and the body must be JSON); curl and scripts are not affected.
+- The status, setup and log pages have **no password**: keep them on your home network and do not expose port 41101
+  to the internet. Saving settings from a web page on another site is refused (the request's Origin must match the
+  TV's address, and the body must be JSON). The control addresses (`/info`, `/app`, `/tv/show`, `/tv/hide` and the
+  other `/tv/...` ones) are plain GETs with no password, like the pages: anything on your network that can reach
+  port 41101 can use them, including a web page open in a browser on your network.
+- The log page masks tokens and keys before showing a line, and other websites cannot read it.
 - Plex and Jellyfin certificates are not verified by default, because home servers usually use self-signed ones. To
   verify, add `"verifyTls": true` to the `plex` or `jellyfin` block in `/home/root/.earc-overlay.json`.
 - If the settings file ever becomes unreadable, the watcher keeps a copy as `/home/root/.earc-overlay.json.bad`
@@ -208,20 +227,34 @@ The address can be changed any time from the app's menu → **Change TV address*
 
 ## 13. Troubleshooting
 
+Start with the log: `http://TV_IP:41101/logs`, or `ssh root@TV_IP tail -f /tmp/earc-volume-overlay.log`. The full
+list of symptoms and fixes is in **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: installing, the TV apps, the watcher,
+the receiver, Plex and Jellyfin, Home Assistant, Docker, and updating. The common ones:
+
 | Symptom | What to check |
 |---|---|
-| Installer cannot connect | `ssh root@TV_IP` works by hand? SSH enabled in the Homebrew Channel? Correct key? |
+| Installer cannot connect | `ssh root@TV_IP "echo ok"` works by hand? SSH enabled in the Homebrew Channel? Correct key (`TV_SSH_KEY`)? |
 | "No Yamaha receiver answered" | Receiver address, Network Standby on, same network, API test from section 5. |
-| No volume number | `/status` shows the volume? Log: `ssh root@TV_IP tail -f /tmp/earc-volume-overlay.log`. "amp not configured" means no receiver address (set it at `/setup`, or leave it empty for the TV-only bar). |
-| Audio (TV) row missing | Is **Show "Audio (TV)"** ticked at `/setup`? It is off by default. Then change the input or press **Show on TV**; it appears once the TV reports a value. |
+| The **eARC Volume Overlay** app shows `Denied method call "exec"` | Expected. Use **AV Overlay Settings** or `/setup`. |
+| **AV Overlay Settings** says the service is not running | Does `http://TV_IP:41101/status` load from a computer? If so, redeploy so the apps and watcher match; if not, reboot the TV or run the installer again. |
+| No volume number | `/status` shows the volume? "amp not configured" means no receiver address (set it at `/setup`, or leave it empty for the TV-only bar). |
 | Info bar never appears | Auto info is off at `/setup`, or use **Show on TV** on the status page. |
-| Remote keys act oddly while the bar is up | Report it with the log; the overlay is built to leave the remote alone. |
-| App not detected on Apple TV | Home Assistant automation not firing: check its trace, the `rest_command` name, and the "app pushed" log line. |
-| Receiver changes at odd times | Check the "Right now" line and the rules at `/setup`, and turn the feature off to compare. |
 | Nothing works after a TV update | Root may have been removed; check the Homebrew Channel, see webosbrew.org. |
 
-## 14. What was and was not tested for this guide
+## 14. Updating
 
-Tested by the maintainer on one OLED and one RX-V485: sections 4 to 10, including a clean reinstall. Not tested by
-this project: the rooting itself (section 3), Home Assistant versions other than a recent one, receivers other
-than the RX-V485, and Windows beyond Git Bash.
+- **On the TV:** `git pull`, then `TV_HOST=root@TV_IP sh scripts/deploy.sh` (settings are kept). On Windows with the
+  release archive, run `Install-AVOverlay.cmd` again from the new archive.
+- **Docker:** `git pull`, `docker compose up -d --build`, then redeploy the TV apps as above. The apps and the watcher
+  are versioned together; the version shows at the bottom of `/status` and `/setup`.
+- What changed is in [CHANGELOG.md](CHANGELOG.md).
+
+## 15. What was and was not tested for this guide
+
+Tested by the maintainer on one LG OLED (a C2, webOS 11.2) and one Yamaha RX-V485: sections 4 to 10, including a clean
+reinstall. For 2.5.0 the build was also deployed from a Windows 11 computer to that TV (Quick Access, the settings app
+and the status, setup and log pages), and `scripts\install.ps1` was run from a release-archive layout (the IPKs in
+`build\`, no Node or Git) with `-NonInteractive`: both apps installed and the watcher was enabled. Not tested by this
+project: the rooting itself (section 3), double-clicking `Install-AVOverlay.cmd` (it only starts `install.ps1`), Home
+Assistant versions other than a recent one, receivers other than the RX-V485, Docker on this release, and a TV with no
+receiver at all.

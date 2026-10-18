@@ -238,7 +238,7 @@ if ($lines.Count -gt 0) {
 }
 if ($AmpClear -or (-not $AmpHost -and -not $cur['ampHost'])) {
   Write-Host 'NOTE: no receiver address is set. The info bar will show only what the TV (and Plex/Jellyfin) knows, with no volume popup' -ForegroundColor Yellow
-  Write-Host '      or sound programs. Add a Yamaha receiver any time at http://<tv>:41101/setup (or the AV Overlay icon on the TV).' -ForegroundColor Yellow
+  Write-Host '      or sound programs. Add a Yamaha receiver any time at http://<tv>:41101/setup (or the AV Overlay Settings icon on the TV).' -ForegroundColor Yellow
 }
 
 # ---------- start the service ----------
@@ -268,5 +268,5 @@ $ip = ($TvHost -split '@')[-1]
 Write-Host ''
 Write-Host 'Installed and enabled.' -ForegroundColor Green
 Write-Host "  Status page : http://${ip}:41101/status"
-Write-Host "  Settings    : http://${ip}:41101/setup  (or the AV Overlay icon on the TV home screen)"
+Write-Host "  Settings    : http://${ip}:41101/setup  (or the AV Overlay Settings icon on the TV home screen)"
 Write-Host '  Log on TV   : /tmp/earc-volume-overlay.log'
