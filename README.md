@@ -22,7 +22,7 @@ the receiver's volume and mute state, the sound program, the audio format actual
   <tr>
     <td align="center" valign="top">
       <img src="docs/images/bar-plex-dolby-vision.jpg" alt="Info bar over a Dolby Vision title played from Infuse on an Apple TV, with Plex stream details" width="100%"><br>
-      <sub>The info bar over Dolby Vision from an Apple TV app: sound program, input, detected app, audio, Plex stream (direct play), amp processing, video and colour.</sub>
+      <sub>The info bar over Dolby Vision from Infuse on an Apple TV: source, app, video and colour, the receiver's audio, sound program and processing, Audio (TV), volume, and the Plex stream. The Apple TV sends PCM, so only the Plex row shows the real DD+ Atmos 5.1.</sub>
     </td>
     <td align="center" valign="top">
       <img src="docs/images/bar-live-tv.jpg" alt="Info bar on Live TV showing the receiver's surround decoder" width="100%"><br>
@@ -34,18 +34,28 @@ the receiver's volume and mute state, the sound program, the audio format actual
 <table>
   <tr>
     <td align="center" valign="top" width="50%">
-      <img src="docs/images/status-page.png" alt="The status page with Show on TV, Live and Auto info buttons" width="100%"><br>
-      <sub>The status page (<code>/status</code>): current values, Show/Hide on TV, a live view and the Auto info switch.</sub>
+      <img src="docs/images/status-page.png" alt="The status page with an on/off switch and drag handle per row, and Show on TV, Live refresh, Auto info, Setup, JSON and Logs controls" width="100%"><br>
+      <sub>The status page (<code>/status</code>): current values, with an on/off switch and a drag handle on every row to choose and order the info bar. Show on TV, live refresh, Auto info, and the Logs page.</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <img src="docs/images/setup-receiver-plex.png" alt="The setup page: receiver, Plex, Jellyfin and display settings" width="100%"><br>
-      <sub>The setup page (<code>/setup</code>): receiver address, optional Plex and Jellyfin, info bar settings, and per-app sound programs. Sections are collapsible.</sub>
+      <img src="docs/images/setup-display-info-bar.png" alt="Setup page display and info bar settings, including the Audio (TV) option and the row checklist" width="100%"><br>
+      <sub>Display and info bar settings on <code>/setup</code>: auto info, the optional Audio (TV) row (works without a receiver), position, font sizes, timing and which rows to show.</sub>
     </td>
   </tr>
 </table>
 
-<img src="docs/images/setup-sound-rules.png" alt="Sound program per app rules on the setup page" width="100%"><br>
-<sub>Per-app sound programs on the setup page: a default, then one rule per input, LG app or Apple TV app, with tick boxes to show or hide each group.</sub>
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/images/setup-receiver-plex.png" alt="The setup page: Yamaha receiver, Plex and Jellyfin settings" width="100%"><br>
+      <sub>The setup page (<code>/setup</code>): receiver address (leave it empty for TV-only mode) and optional Plex and Jellyfin. Sections are collapsible.</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/images/setup-sound-rules.png" alt="Sound program per app rules on the setup page" width="100%"><br>
+      <sub>Per-app sound programs: a default, then one rule per input, LG app or Apple TV app, with tick boxes to show or hide each group.</sub>
+    </td>
+  </tr>
+</table>
 
 - **Volume popup** (bottom-right) whenever the receiver's volume or mute changes, including half steps.
 - **Info bar** with the sound program, volume, source, audio format, Plex or Jellyfin stream details (optional),
