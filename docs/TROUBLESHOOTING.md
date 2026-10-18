@@ -76,7 +76,7 @@ already masks tokens and keys, but check before you post).
 |---|---|
 | **Show on TV** does nothing | `WATCHER_URL` in `.env` must be reachable from the **TV**, not just from the Docker host. Check the host firewall allows 41101/tcp. |
 | SSH connection refused or key rejected | `docker compose exec av-overlay ssh -i /run/secrets/tv_ssh_key -o StrictHostKeyChecking=no root@TV_IP echo ok`. Then check the TV is on, `TV_SSH_KEY` points at the right private key (full path, no `~`), and the public key is in `/home/root/.ssh/authorized_keys` on the TV. |
-| Two watchers running (the TV's own and Docker's) | The TV's own watcher must not run when Docker does: remove the boot hook and restart the TV once (DOCKER.md step 6). |
+| Two watchers running (the TV's own and Docker's) | The TV's own watcher must not run when Docker does: remove the boot hook and stop the running watcher (DOCKER.md step 6). |
 | Events are not instant | Docker Desktop (Mac or Windows) cannot do host networking to your LAN. Use a Linux host. |
 
 ## After you update

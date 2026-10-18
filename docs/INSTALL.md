@@ -252,6 +252,9 @@ the receiver, Plex and Jellyfin, Home Assistant, Docker, and updating. The commo
 ## 15. What was and was not tested for this guide
 
 Tested by the maintainer on one LG OLED (a C2, webOS 11.2) and one Yamaha RX-V485: sections 4 to 10, including a clean
-reinstall, and the 2.5.0 build deployed from Windows to that TV X. Not tested by this project: the rooting itself (section 3), Home
-Assistant versions other than a recent one, receivers other than the RX-V485, a TV with no receiver at all, and the
-Windows release archive installer (`Install-AVOverlay.cmd`) on this release.
+reinstall. For 2.5.0 the build was also deployed from a Windows 11 computer to that TV (Quick Access, the settings app
+and the status, setup and log pages), and `scripts\install.ps1` was run from a release-archive layout (the IPKs in
+`build\`, no Node or Git) with `-NonInteractive`: both apps installed and the watcher was enabled. Not tested by this
+project: the rooting itself (section 3), double-clicking `Install-AVOverlay.cmd` (it only starts `install.ps1`), Home
+Assistant versions other than a recent one, receivers other than the RX-V485, Docker on this release, and a TV with no
+receiver at all.

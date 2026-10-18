@@ -202,11 +202,12 @@ will set it via the `/setup` page after the container is running.
 > the Docker container runs the watcher:
 >
 > ```bash
-> ssh root@192.168.1.50 'rm -f /var/lib/webosbrew/init.d/91-earc-volume-overlay'
+> ssh root@192.168.1.50 'rm -f /var/lib/webosbrew/init.d/91-earc-volume-overlay; kill $(cat /tmp/earc-volume-overlay.pid)'
 > ```
 >
-> The installer also starts the TV's own watcher, and it keeps running until the TV restarts. With the boot hook
-> removed, restart the TV once so only the Docker watcher is left; two watchers would both draw on the TV.
+> The installer also starts the TV's own watcher. That command removes the boot hook and stops the running
+> watcher (its pid is in `/tmp/earc-volume-overlay.pid`), so only the Docker watcher is left. `scripts/docker/install.sh`
+> does the same for you if you answer yes to "Make Docker the primary watcher?".
 >
 > The WebOS overlay app (the visual layer) stays installed — only the
 > background watcher process is moved to Docker.

@@ -6,7 +6,7 @@ steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 ## 2.5.0
 
 The first release from the single consolidated repository (Android app, release candidates and the shared project
-notes now live here), with a larger info bar and a log page.
+notes now live here), with new info bar rows and controls, and a log page.
 
 ### Added
 - **Audio (TV) row** (optional, off by default): the audio the TV itself sees on its input, with or without a
