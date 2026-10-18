@@ -73,6 +73,33 @@ the receiver's volume and mute state, the sound program, the audio format actual
   from Home Assistant, curl and scripts (see [Change settings later](#change-settings-later) for what is and isn't
   protected).
 
+## Scope
+
+**What it is:** a watcher that runs as root on a rooted LG webOS TV (or in Docker on a home server) and two small TV
+apps that draw its output: the volume popup and the info bar. It reads the receiver, the TV, and optionally Plex or
+Jellyfin over your home network, and serves a status page, a setup page and a log page on port 41101.
+
+**What it does, in short**
+- Shows the receiver's volume and mute, and an info bar of sound program, source, app, audio, stream, video and colour.
+- Optionally switches the receiver's sound program per input or app, and keeps the Apple TV app in step through Home
+  Assistant.
+- Installs and updates from a computer over SSH; the Android app is a viewer for the status page.
+
+**What it does not do**
+- It does not root your TV, and it is not an official LG or Yamaha product. Rooting is covered by the
+  [webOS Brew](https://www.webosbrew.org/) community, not here.
+- It never sets the receiver's volume. Apart from the optional sound-program rules and the Spotify guard, it only reads
+  from the receiver.
+- It supports Yamaha receivers with the Extended Control API only. Other receiver brands are not supported; the TV-side
+  rows work without any receiver.
+- It has no accounts and no password, and is for your home network only. Do not expose port 41101 to the internet.
+- It needs no cloud service, LG developer account or anything installed on the receiver or an Apple TV.
+
+**Where to read next:** [Install guide](docs/INSTALL.md) · [Docker guide](docs/DOCKER.md) ·
+[Troubleshooting](docs/TROUBLESHOOTING.md) · [Home Assistant](docs/HOME-ASSISTANT.md) ·
+[Info bar rows](docs/INFO-ROWS.md) · [Compatibility](docs/COMPATIBILITY.md) · [Changelog](docs/CHANGELOG.md) ·
+[Release process](docs/RELEASE-PROCESS.md) (for maintainers).
+
 ## Compatibility
 
 **Confirmed:** an LG OLED65C2PSC (C2, 2022 OLED) on webOS 11.2.0 with a Yamaha RX-V485 over eARC (Extended Control
@@ -270,7 +297,8 @@ installed the same way in both cases.
 
 The watcher runs directly on the rooted TV as a background service. Nothing extra is needed.
 
-**Requirements:** Node.js 18+, `ssh`/`scp`, and a POSIX shell (macOS, Linux, or Git Bash/WSL on Windows).
+**Requirements:** Node.js 18+, `ssh`/`scp`, and a POSIX shell (macOS, Linux, or Git Bash/WSL on Windows). Your
+computer also needs an SSH key the TV accepts (see [docs/INSTALL.md](docs/INSTALL.md) section 4).
 
 See [docs/INSTALL.md](docs/INSTALL.md) for the full guide, from rooting the TV to Home Assistant.
 
@@ -280,8 +308,10 @@ cd webos-av-overlay
 TV_HOST=root@TV_IP sh scripts/install.sh
 ```
 
-**On Windows**, unpack the release archive and double-click `Install-AVOverlay.cmd` (no Git Bash or Node needed,
-only the built-in OpenSSH Client), or run `scripts\install.ps1`; it asks the same questions.
+**On Windows**, the supported route is the release archive: unpack it and double-click `Install-AVOverlay.cmd` (no Git
+Bash or Node needed, only the built-in OpenSSH Client), or run `scripts\install.ps1`; it asks the same questions.
+Building from source in Git Bash can fail if Node is installed under a folder with a space in its name, such as
+`C:\Program Files` (`npx` is not found); use the archive or WSL.
 
 ### Option B — in Docker (on a home server or Raspberry Pi)
 
@@ -331,7 +361,10 @@ asks a few questions, and starts the service:
 | Audio (TV) on/off | Show the "Audio (TV)" line, the audio the TV itself sees on its input. Defaults to on when you skip the receiver, otherwise off |
 | Info bar position | top-left, top-center, top-right, middle-left, middle-right, bottom-left, bottom-center or bottom-right |
 
-Jellyfin is not asked by the installer — configure it at `/setup` after installation.
+Jellyfin is not asked by the installer: configure it at `/setup` after installation.
+
+The installer enables and starts the watcher itself. The **eARC Volume Overlay** app's own Enable and Disable buttons
+cannot work on webOS (they show `Denied method call "exec"`); that is expected and does not mean anything is broken.
 
 Every answer can be supplied as an environment variable instead, and `EARC_NONINTERACTIVE=1` skips all questions.
 Settings are stored on the TV in `/home/root/.earc-overlay.json` (readable by root only) and can be changed any
@@ -429,18 +462,17 @@ service starting (yamaha 192.168.1.50, with signal info)
 watching 192.168.1.50 at 42:false
 ```
 
+The full list of symptoms and fixes (installing, the TV apps, the watcher, the receiver, Plex and Jellyfin, Home
+Assistant, Docker, updating) is in **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**. The ones people hit first:
+
+- *The eARC Volume Overlay app shows `Denied method call "exec"`*: expected; use **AV Overlay Settings** or `/setup`.
+- *AV Overlay Settings says the service is not running*: open `http://<tv>:41101/status` from a computer; if it loads,
+  redeploy so the apps and the watcher are the same version.
 - *"amp not configured"*: enter the receiver address at `/setup`, or ignore it if you are using the
   [TV-only info bar](#using-it-without-a-yamaha-receiver) on purpose.
-- *"amp unreachable"*: check the address, that the receiver is on, and that "Network Standby" is enabled on it.
-  While the receiver is not answering, the bar and the `/status` and `/info` pages say **"Receiver not responding"** with
-  when it last answered, and the receiver's own numbers (volume, sound program, audio) are withheld instead of showing
-  the last value; `/status.json` has `reachable` and `lastOk`. The volume popup simply does not appear.
-- Remote channel up/down while the info bar is on screen: the first key press dismisses the bar and is
-  passed on to Live TV, so one press still changes the channel.
-- Magic Remote pointer: it works over native apps with the bar showing. On an HDMI input (an Apple TV, for example)
-  the pointer cannot click anything; that is a limit of HDMI-CEC, which only passes key presses.
-- After a watcher restart (a redeploy, an update) a pinned bar comes back by itself after about 8 seconds, and the last
-  Apple TV app sent by Home Assistant is remembered until the TV itself restarts.
+- *"amp unreachable" / "Receiver not responding"*: check the address, that the receiver is on, and that "Network
+  Standby" is enabled on it.
+- *Installer cannot connect*: `ssh root@TV_IP "echo ok"` must work by hand first, with the key the installer will use.
 
 ## How it works
 
