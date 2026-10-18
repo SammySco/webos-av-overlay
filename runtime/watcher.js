@@ -607,7 +607,6 @@ var setupHandler = require('./setup.js')({
 var logsHandler = require('./logs.js')({ logFile: LOG, title: function () { return state.tvName ? state.tvName + ' - Logs' : 'AV Overlay - Logs'; } });
 
 var APP_PATHS = ['/tv/pinstate', '/tv/qa', '/tv/key', '/status.json'];
-var MUTATING_PATHS = ['/info', '/app', '/tv/show', '/tv/hide', '/tv/pinstate', '/tv/qa', '/tv/auto', '/tv/row', '/tv/order', '/tv/key'];
 http.createServer(function (req, res) {
   var path = req.url.split('?')[0];
   var wantsHtml = /text\/html/.test(req.headers.accept || '');
@@ -615,12 +614,6 @@ http.createServer(function (req, res) {
   // The overlay app (an on-TV page, a different origin) calls the /tv paths, and the settings app probes /status.json
   // before opening /setup; both need to read the answer.
   if (APP_PATHS.indexOf(path) >= 0) headers['Access-Control-Allow-Origin'] = '*';
-  // A page on another site must not change anything through an <img>, fetch or iframe (these are plain GETs).
-  // Modern browsers say so in Sec-Fetch-Site; the TV's old browser sends neither header, and a top-level
-  // navigation (the user clicking a link) is allowed.
-  if (MUTATING_PATHS.indexOf(path) >= 0 && req.headers['sec-fetch-site'] === 'cross-site' && req.headers['sec-fetch-dest'] !== 'document') {
-    res.writeHead(403, headers); res.end(); return;
-  }
   if (setupHandler(req, res, path)) return;
   if (logsHandler(req, res, path)) return;
   if (path === '/info') {

@@ -201,9 +201,8 @@ The address can be changed any time from the app's menu → **Change TV address*
 - The status, setup and log pages have **no password**: keep them on your home network and do not expose port 41101
   to the internet. Saving settings from a web page on another site is refused (the request's Origin must match the
   TV's address, and the body must be JSON). The control addresses (`/info`, `/app`, `/tv/show`, `/tv/hide` and the
-  other `/tv/...` ones) refuse requests a browser marks as cross-site (an image, script or frame on another site), so
-  a web page cannot switch things on the TV behind your back. Opening the address yourself, Home Assistant's
-  `rest_command`, curl and scripts are not affected, and the status page can still sit in a Home Assistant iframe.
+  other `/tv/...` ones) are plain GETs with no password, like the pages: anything on your network that can reach
+  port 41101 can use them, including a web page open in a browser on your network.
 - The log page masks tokens and keys before showing a line, and other websites cannot read it.
 - Plex and Jellyfin certificates are not verified by default, because home servers usually use self-signed ones. To
   verify, add `"verifyTls": true` to the `plex` or `jellyfin` block in `/home/root/.earc-overlay.json`.
@@ -225,7 +224,6 @@ The address can be changed any time from the app's menu → **Change TV address*
 | Info bar never appears | Auto info is off at `/setup`, or use **Show on TV** on the status page. |
 | Remote keys act oddly while the bar is up | Report it with the log; the overlay is built to leave the remote alone. The Magic Remote pointer should work over native apps with the bar up; on an HDMI input it cannot click anything (HDMI-CEC only passes key presses). |
 | Pinned bar gone after a restart | It comes back about 8 seconds after the watcher starts. If not, press **Show on TV** again and check the log. |
-| A button on another web page or dashboard does nothing (403 in the log) | Expected when the page calls the control addresses in the background: they refuse cross-site browser requests. Use Home Assistant's `rest_command`, curl, a plain link, or the status page in an iframe. |
 | App not detected on Apple TV | Home Assistant automation not firing: check its trace, the `rest_command` name, and the "app pushed" log line. |
 | Receiver changes at odd times | Check the "Right now" line and the rules at `/setup`, and turn the feature off to compare. |
 | Nothing works after a TV update | Root may have been removed; check the Homebrew Channel, see webosbrew.org. |

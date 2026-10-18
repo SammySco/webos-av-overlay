@@ -70,8 +70,8 @@ the receiver's volume and mute state, the sound program, the audio format actual
   YouTube, ...), Plex players and, with a small Home Assistant automation, each Apple TV app. See
   [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md).
 - Endpoints for automation: `/info`, `/status.json`, `/logs.txt`, `/tv/show`, `/tv/hide`, `/app?name=...`. They work
-  from Home Assistant, curl and scripts; a web page on another site cannot use them (see
-  [Change settings later](#change-settings-later)).
+  from Home Assistant, curl and scripts (see [Change settings later](#change-settings-later) for what is and isn't
+  protected).
 
 ## Compatibility
 
@@ -342,10 +342,9 @@ time at `/setup` or from the TV home screen.
 Open **AV Overlay Settings** on the TV home screen, or browse to `http://<tv>:41101/setup`. Changes apply immediately.
 
 The setup, status and log pages have no password and are meant for your home network only; do not expose port 41101
-to the internet. A web page on another site cannot change anything: saving settings needs a JSON request from the
-TV's own pages, and the control addresses (`/info`, `/app`, `/tv/...`) refuse requests that a browser marks as coming
-from another site. Opening one of those addresses yourself (a link or a bookmark), Home Assistant, curl and scripts
-still work. The status page can still be embedded in a Home Assistant iframe card.
+to the internet. Saving settings needs a JSON request from the TV's own pages, so a web page on another site cannot
+change them. The control addresses (`/info`, `/app`, `/tv/...`) are plain GETs with no password: anything on your
+network that can reach port 41101 can use them. The status page can be embedded in a Home Assistant iframe card.
 
 ## Choose and order the info bar rows
 

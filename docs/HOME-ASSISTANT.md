@@ -75,9 +75,8 @@ afterwards; it is forgotten when the TV itself restarts, until the automation se
 ### Dashboard buttons and the status page
 
 - To show or hide the bar from a dashboard, call the overlay from Home Assistant itself with a `rest_command` (for
-  example `url: "http://TV_IP:41101/tv/show"`, and `/tv/hide`, `/info`). The control addresses refuse background
-  requests from a browser on another site, so a card that fetches them from the browser gets a 403; a
-  `rest_command` is sent by Home Assistant and is not affected.
+  example `url: "http://TV_IP:41101/tv/show"`, and `/tv/hide`, `/info`). A `rest_command` is sent by Home Assistant
+  itself, so it does not depend on the browser.
 - The status page works in a **Webpage (iframe) card**: `http://TV_IP:41101/status`. Its own buttons (Show on TV,
   Live, Auto info, row switches and ordering) work inside the frame.
 

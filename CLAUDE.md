@@ -56,8 +56,10 @@ for release candidates, tagging and the checks to run after a tag.
   between native apps and Live TV) is restored after 300 ms.
 - Settings: `/home/root/.earc-overlay.json` on the TV (0600), written atomically (an unreadable file is copied to
   `.earc-overlay.json.bad`) by `scripts/install.sh` and the `/setup` page. `/setup` POSTs reject cross-site Origins and
-  non-JSON bodies; the mutating GETs (`/info`, `/app`, `/tv/*`) refuse cross-site requests (`Sec-Fetch-Site`), and only
-  `/tv/pinstate`, `/tv/qa` and `/tv/key` send a CORS header. Plex/Jellyfin TLS is unverified unless `"verifyTls": true`. No baked-in receiver address: with none
+  non-JSON bodies. The mutating GETs (`/info`, `/app`, `/tv/*`) have no cross-site guard: the on-TV apps call
+  `http://127.0.0.1`, which browsers treat as trustworthy, so they send `Sec-Fetch-Site: cross-site` and a guard on that
+  header refused the apps' own calls (Quick Access fell back to the setup page). Only `/tv/pinstate`, `/tv/qa`,
+  `/tv/key` and `/status.json` send a CORS header. Plex/Jellyfin TLS is unverified unless `"verifyTls": true`. No baked-in receiver address: with none
   set the watcher idles. Plex: `/home/root/.earc-plex.json`; the token is private.
 - Log: `/tmp/earc-volume-overlay.log` (dedupes repeats, rotates at 256 KB).
 - Code layout (`runtime/`): `watcher.js` (main), `profiles.js` (sound rules), `setup.js` (/setup), `configure.js`
