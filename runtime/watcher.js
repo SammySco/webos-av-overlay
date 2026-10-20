@@ -393,7 +393,19 @@ function evaluateLost(prevFg) {
     scheduleRestore('app change', 1200);
   }
 }
-function onForegroundChange(id, prev) { lastFg = id; evaluateLost(prev); }
+// The TV re-syncs its (unmuted) state to the receiver over eARC when the input changes, which un-mutes a receiver the
+// user muted. Put the mute back if it was lost within MUTE_WINDOW ms of an input switch (either order).
+var MUTE_WINDOW = 4000, muteLostAt = 0, inputSwitchAt = 0;
+function remuteAmp(why) {
+  muteLostAt = 0; inputSwitchAt = 0;
+  log('receiver un-muted by the input switch (' + why + '); muting it again');
+  ampGet('/main/setMute?enable=true', null, function (err) { if (err) log('re-mute failed: ' + err.message); });
+}
+function noteInputSwitch() {
+  inputSwitchAt = Date.now();
+  if (muteLostAt && inputSwitchAt - muteLostAt < MUTE_WINDOW) remuteAmp('switch followed it');
+}
+function onForegroundChange(id, prev) { lastFg = id; if (prev && id !== prev) noteInputSwitch(); evaluateLost(prev); }
 function onRunning(j) {
   if (!tvPinned) { overlayLost = false; return; }
   if (!j) return;
@@ -779,6 +791,10 @@ function handleStatus(s) {
   }
 
   var value = readVolume(s), mute = !!s.mute, current = value + ':' + mute;
+  if (state.mute && !mute && state.volume !== null) { // un-muted: by the user, or by an input switch just now or just after
+    muteLostAt = Date.now();
+    if (inputSwitchAt && muteLostAt - inputSwitchAt < MUTE_WINDOW) { remuteAmp('switch came first'); return; }
+  }
   state.volume = value; state.volumeText = volumeText(s, value); state.mute = mute; state.updated = new Date();
   if (lastVolume === null) { lastVolume = current; log('watching ' + AMP_HOST + ' at ' + current); }
   else if (current !== lastVolume) {
@@ -939,6 +955,7 @@ function handleVideo(resp) {
   var prevSource = state.source;
   state.source = m ? 'HDMI ' + m[1] : (/livetv|tvsource|dtv/i.test(app + v.connectedSource) ? 'Live TV' : (v.connectedSource === 'VDEC' ? 'LG TV apps' : (v.connectedSource || null))); // VDEC = the TV's own video decoder (apps running on the TV)
   // Switching input closes the overlay window; bring a pinned bar back once the new input has settled.
+  if (prevSource && state.source && prevSource !== state.source) noteInputSwitch();
   if (tvPinned && prevSource && state.source && prevSource !== state.source) {
     log('input changed to ' + state.source + ' while pinned; restoring the bar');
     if (restoreTimer) clearTimeout(restoreTimer);
