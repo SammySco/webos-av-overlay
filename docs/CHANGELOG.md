@@ -3,6 +3,14 @@
 Newest first. Versions are tagged `vX.Y.Z`; the app version in `app/appinfo.json` is the source of truth. Release
 steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 
+## Unreleased
+
+### Fixed
+- The `/setup` page (opened by the AV Overlay Settings app) can now be driven with the TV remote: section headers
+  are focusable and OK opens them, the arrow keys move between controls (skipping those inside closed
+  sections), and OK toggles checkboxes. Not yet
+  confirmed on a TV; Magic Remote pointer clicks are still being investigated.
+
 ## 2.5.0
 
 The first release from the single consolidated repository (Android app, release candidates and the shared project
