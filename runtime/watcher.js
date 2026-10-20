@@ -354,18 +354,37 @@ function hideInfo(via) {
 // The running-app list and the foreground app arrive by luna subscription; only the channel is polled, and only while the bar is away.
 var lostAt = 0, overlayLost = false, lastChannel = null, restoreTimer = null, lastFg = null;
 var barFg = null; // the foreground app when the pinned bar was last known to be on screen
+var vanishCount = 0, lastVanishRestoreAt = 0, VANISH_DELAYS = [1500, 3000, 6000, 10000];
+// The TV's own input picker and quick settings run as apps beside the one on screen (the foreground app stays the HDMI
+// input). Relaunching the overlay while one is open closes it, so a vanished bar waits until they are gone.
+var MENU_APPS = /"com.webos.app.(quick[a-z]*|settings[a-z]*|inputpicker[a-z]*)"/, menuOpen = false, lastMenuAt = 0;
 var QUIET_APPS = ['com.webos.app.home', 'com.webos.app.livemenu', 'com.webos.app.notification'];
 function scheduleRestore(why, ms) {
   if (restoreTimer) clearTimeout(restoreTimer);
-  restoreTimer = setTimeout(function () { restoreTimer = null; if (tvPinned) showInfoNow(why, true); }, ms);
+  restoreTimer = setTimeout(function () {
+    restoreTimer = null;
+    if (!tvPinned) return;
+    if (menuOpen) { log('not restoring the bar (' + why + ') while a TV menu is open; waiting for it to close'); return; }
+    if (QUIET_APPS.indexOf(lastFg) >= 0) { log('not restoring the bar (' + why + ') while ' + lastFg + ' is up; waiting for the app to change'); return; }
+    showInfoNow(why, true);
+  }, ms);
 }
 function evaluateLost(prevFg) {
   if (!tvPinned || !overlayLost) return;
   // The Guide only exists on Live TV, so on an HDMI input a vanished bar is not the Guide: bring it back
   // (something else, such as a system pop-up, closed the window).
+  // Relaunching the app closes the TV's own input picker and settings, so a bar that keeps vanishing (an Apple TV
+  // on HDMI does this every few seconds) is restored after a growing delay instead of straight away, which made
+  // those menus flicker or fail to show.
   if (lastFg && lastFg.indexOf('com.webos.app.hdmi') === 0 && !restoreTimer) {
-    log('bar vanished on ' + lastFg + ' with no input change; restoring it');
-    scheduleRestore('bar vanished', 300);
+    var now = Date.now();
+    // a vanish beside a TV menu is the menu, not a fault: do not count it towards the backoff
+    var menuNear = menuOpen || now - lastMenuAt < 15000;
+    vanishCount = menuNear || now - lastVanishRestoreAt >= 30000 ? 0 : vanishCount + 1;
+    lastVanishRestoreAt = now;
+    var wait = VANISH_DELAYS[Math.min(vanishCount, VANISH_DELAYS.length - 1)];
+    log('bar vanished on ' + lastFg + ' with no input change; restoring it in ' + wait + ' ms');
+    scheduleRestore('bar vanished', wait);
   }
   // The foreground app changing while the bar is away means the new input or screen is up: bring the bar back
   // without waiting for the video state to settle (that can take many seconds when the TV retunes or locks HDMI).
@@ -378,7 +397,11 @@ function onForegroundChange(id, prev) { lastFg = id; evaluateLost(prev); }
 function onRunning(j) {
   if (!tvPinned) { overlayLost = false; return; }
   if (!j) return;
-  if (JSON.stringify(j).indexOf('"' + APP_ID + '"') >= 0) { overlayLost = false; barFg = lastFg; return; }
+  var running = JSON.stringify(j), menuWas = menuOpen;
+  menuOpen = MENU_APPS.test(running);
+  if (menuOpen || menuWas) lastMenuAt = Date.now();
+  if (menuWas && !menuOpen && running.indexOf('"' + APP_ID + '"') < 0) { log('TV menu closed; restoring the bar'); scheduleRestore('menu closed', 800); }
+  if (running.indexOf('"' + APP_ID + '"') >= 0) { overlayLost = false; barFg = lastFg; return; }
   if (overlayLost || Date.now() - lastLaunchAt < 3000) return; // a launch in progress is not yet in the list
   overlayLost = true; lostAt = Date.now();
   log('pinned bar went away (foreground ' + lastFg + '); waiting for a channel/app change');
