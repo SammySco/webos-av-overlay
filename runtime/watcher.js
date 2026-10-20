@@ -865,22 +865,44 @@ function setTvAudio(text) {
   if (tvAudioKey === null) { tvAudioKey = key; return; } // baseline: no pop-up
   if (key !== tvAudioKey) { tvAudioKey = key; scheduleInfo('LG TV audio ' + (text || 'none')); }
 }
+var tvAudioLogged = false; // log the raw replies once when nothing usable comes back, to diagnose other models
+function tvAudioDiag(what, obj) {
+  if (tvAudioLogged) return;
+  tvAudioLogged = true;
+  log('Audio (TV): ' + what + ': ' + JSON.stringify(obj).slice(0, 400));
+}
+function parseHdmiAudio(d) {
+  var line = d && d.HDMIdiagnostics && d.HDMIdiagnostics.general && d.HDMIdiagnostics.general.sublist_3;
+  var f = /^(.+?)\s+(\d+)Ch\s+(\d+)Hz/.exec(line || ''); // e.g. "PCM 8Ch 48000Hz"
+  return f ? f[1] + ' · ' + f[2] + ' ch · ' + (Number(f[3]) / 1000) + ' kHz' : null;
+}
 function fetchTvAudio() {
   if (!tvAudio || tvAudioInFlight) return;
   tvAudioInFlight = true;
   var hdmi = /^HDMI (\d)$/.exec(state.source || '');
+  var HDMI_URI = 'luna://com.webos.service.extinputs.hdmi/getHDMIDiagnosticsInfo';
+  // Older webOS (the C1 on 6.x) may lack the audio call or its pipelineId; then ask the HDMI service by port alone.
+  function hdmiOnly(codec) {
+    if (!hdmi) { tvAudioInFlight = false; setTvAudio(codec); return; }
+    shared.lunaJson(LUNA, HDMI_URI, JSON.stringify({ port: Number(hdmi[1]) }), function (d) {
+      tvAudioInFlight = false;
+      var text = parseHdmiAudio(d);
+      if (!text && !codec) tvAudioDiag('no HDMI audio line', d);
+      setTvAudio(text || codec);
+    });
+  }
   shared.lunaJson(LUNA, 'luna://com.webos.service.audio/tv/getAudioInputProperty', function (p) {
     var ap = p && p.audioInputProperty && p.audioInputProperty[0];
-    if (!ap) { tvAudioInFlight = false; return; }
+    if (!ap) { tvAudioDiag('getAudioInputProperty gave nothing usable', p); hdmiOnly(null); return; }
     var codec = ap.codec ? (TV_CODEC[String(ap.codec).toLowerCase()] || String(ap.codec).toUpperCase()) : null;
-    if (!hdmi || !ap.pipelineId) { tvAudioInFlight = false; setTvAudio(codec); return; }
-    shared.lunaJson(LUNA, 'luna://com.webos.service.extinputs.hdmi/getHDMIDiagnosticsInfo',
-      JSON.stringify({ pipelineId: ap.pipelineId, port: Number(hdmi[1]) }), function (d) {
-        tvAudioInFlight = false;
-        var line = d && d.HDMIdiagnostics && d.HDMIdiagnostics.general && d.HDMIdiagnostics.general.sublist_3;
-        var f = /^(.+?)\s+(\d+)Ch\s+(\d+)Hz/.exec(line || ''); // e.g. "PCM 8Ch 48000Hz"
-        setTvAudio(f ? f[1] + ' · ' + f[2] + ' ch · ' + (Number(f[3]) / 1000) + ' kHz' : codec);
-      });
+    if (!hdmi) { tvAudioInFlight = false; setTvAudio(codec); return; }
+    if (!ap.pipelineId) { tvAudioDiag('no pipelineId', ap); hdmiOnly(codec); return; }
+    shared.lunaJson(LUNA, HDMI_URI, JSON.stringify({ pipelineId: ap.pipelineId, port: Number(hdmi[1]) }), function (d) {
+      var text = parseHdmiAudio(d);
+      if (text) { tvAudioInFlight = false; setTvAudio(text); return; }
+      tvAudioDiag('HDMI diagnostics had no audio line', d);
+      hdmiOnly(codec);
+    });
   });
 }
 
