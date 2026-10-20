@@ -227,7 +227,7 @@ module.exports = function createSetup(ctx) {
       'now();window.setInterval(now,4000);' +
       // Remote control: make the section headers focusable, toggle them with OK, and move between controls with the arrow keys.
       'Array.prototype.forEach.call(document.querySelectorAll("summary"),function(s){s.tabIndex=0;s.setAttribute("role","button")});' +
-      'function focusables(){return Array.prototype.filter.call(document.querySelectorAll("summary,input,select,button,a.btn"),function(e){return !e.disabled&&e.offsetParent!==null&&e.type!=="hidden"})}' +
+      'function focusables(){return Array.prototype.filter.call(document.querySelectorAll("summary,input,select,button,a.btn"),function(e){if(e.disabled||e.type==="hidden"||e.offsetParent===null)return false;var d=e.closest("details");return !d||d.open||e.tagName==="SUMMARY"})}' +
       'document.addEventListener("keydown",function(e){var k=e.keyCode,a=document.activeElement;' +
       '  if(k===13&&a&&a.tagName==="SUMMARY"){e.preventDefault();a.parentNode.open=!a.parentNode.open;return}' +
       '  if(k===13&&a&&a.type==="checkbox"){e.preventDefault();a.click();return}' +
