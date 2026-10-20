@@ -96,7 +96,7 @@ module.exports = function createSetup(ctx) {
       '.filters{display:flex;flex-wrap:wrap;gap:6px 18px;margin:6px 0 8px}.filters label{display:flex;align-items:center;gap:6px;margin:0;font-size:14px}.rule{display:flex;gap:8px;margin:8px 0;align-items:center}.rule .appwrap{flex:1.3;display:flex;flex-direction:column;gap:6px;min-width:0}.rule .appwrap select,.rule .appwrap input{width:100%}.rule select{flex:1}.rule button{flex:0 0 auto}' +
       'nav{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap}button,a.btn{font:inherit;color:#fff;text-decoration:none;background:#2a2a31;border:1px solid #3a3a42;padding:9px 14px;border-radius:10px;cursor:pointer}' +
       'button.primary{background:#2f5d3f;border-color:#3f7255}button:hover,a.btn:hover{filter:brightness(1.15)}#msg{margin-top:16px;min-height:22px;font-size:14px}.ok{color:#9fe0b6}.bad{color:#ffaaaa}' +
-      ':focus{outline:3px solid #fff;outline-offset:2px}html{-webkit-text-size-adjust:100%}' +
+      ':focus{outline:3px solid #fff;outline-offset:2px}input[type=checkbox]{width:22px;height:22px;flex-shrink:0}select,input,button,summary,a.btn,label{cursor:pointer}html{-webkit-text-size-adjust:100%}' +
       '@media (max-width:640px){body{padding:16px 14px}.row.stack{flex-direction:column;gap:0}' +
       '.rule{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px;margin:10px 0;background:#17171b;border:1px solid #2a2a30;border-radius:12px}' +
       '.rule .appwrap,.rule button{grid-column:1/-1}.rule select{min-width:0;width:100%}nav button,nav a.btn{flex:1 1 140px;text-align:center}}' +
@@ -225,6 +225,16 @@ module.exports = function createSetup(ctx) {
       '$("applyNow").onclick=function(){post("/setup/sound/apply").then(function(){window.setTimeout(now,1500)})};' +
       '$("refreshApps").onclick=function(){say("Refreshing…",true);fetch("/setup/sound/refresh",{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(j.ok){D.choices=j.choices;refreshAll();say("App list refreshed.",true)}else say(j.error||"Refresh failed",false)}).catch(function(){say("Request failed",false)})};' +
       'now();window.setInterval(now,4000);' +
+      // Remote control: make the section headers focusable, toggle them with OK, and move between controls with the arrow keys.
+      'Array.prototype.forEach.call(document.querySelectorAll("summary"),function(s){s.tabIndex=0;s.setAttribute("role","button")});' +
+      'function focusables(){return Array.prototype.filter.call(document.querySelectorAll("summary,input,select,button,a.btn"),function(e){if(e.disabled||e.type==="hidden"||e.offsetParent===null)return false;var d=e.closest("details");return !d||d.open||e.tagName==="SUMMARY"})}' +
+      'document.addEventListener("keydown",function(e){var k=e.keyCode,a=document.activeElement;' +
+      '  if(k===13&&a&&a.tagName==="SUMMARY"){e.preventDefault();a.parentNode.open=!a.parentNode.open;return}' +
+      '  if(k===13&&a&&a.type==="checkbox"){e.preventDefault();a.click();return}' +
+      '  var tx=a&&(a.type==="text"||a.type==="password");' +
+      '  if(k===38||k===40||((k===37||k===39)&&!tx&&a&&a.tagName!=="SELECT")){var f=focusables(),i=f.indexOf(a);if(i<0)i=0;else i+=(k===38||k===37)?-1:1;if(i>=0&&i<f.length){e.preventDefault();f[i].focus();f[i].scrollIntoView({block:"center"})}}' +
+      '});' +
+      'var first=document.querySelector("summary");if(first)first.focus();' +
       '}());</script></body></html>';
   }
 

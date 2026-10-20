@@ -3,6 +3,18 @@
 Newest first. Versions are tagged `vX.Y.Z`; the app version in `app/appinfo.json` is the source of truth. Release
 steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 
+## 2.5.1
+
+### Fixed
+- The pinned bar no longer flickers on an HDMI input: its restore is held while a TV menu (quick menu, settings,
+  input picker) or the home screen is up, and backs off if the bar keeps vanishing.
+- Audio (TV) row: when the TV's audio call gives no `pipelineId` (older webOS), the HDMI service is asked by port
+  alone. The raw replies are logged once if nothing usable comes back. Not yet confirmed on other models.
+- The `/setup` page (opened by the AV Overlay Settings app) can now be driven with the TV remote: section headers
+  are focusable and OK opens them, the arrow keys move between controls (skipping those inside closed
+  sections), and OK toggles checkboxes. Not yet
+  confirmed on a TV; Magic Remote pointer clicks are still being investigated.
+
 ## 2.5.0
 
 The first release from the single consolidated repository (Android app, release candidates and the shared project
