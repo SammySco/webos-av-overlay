@@ -58,7 +58,10 @@ tagging and the checks to run after a tag. On Windows, Git's `sh` can fail to fi
   token and key shapes. Everything is served on port 41101.
 - Show on TV is saved as `pinOnTv` in the settings file; at start-up the watcher restores the pinned bar after 8 s
   (retrying every 15 s, up to 8 times, until the app reports its pin state). A pinned bar that vanishes (switching
-  between native apps and Live TV) is restored after 300 ms.
+  between native apps and Live TV) is restored. On an HDMI input the restore waits 1.5 s, growing to 10 s if it keeps
+  vanishing, and is held while a TV menu is open (the running list shows `com.webos.app.quick*`, `settings*` or
+  `inputpicker*`; the foreground app stays the HDMI input) or while the home screen is up, because relaunching the
+  overlay closes those menus. It returns about 0.8 s after the menu closes.
 - Settings: `/home/root/.earc-overlay.json` on the TV (0600), written atomically (an unreadable file is copied to
   `.earc-overlay.json.bad`) by `scripts/install.sh` and the `/setup` page. `/setup` POSTs reject cross-site Origins and
   non-JSON bodies. The mutating GETs (`/info`, `/app`, `/tv/*`) have no cross-site guard: the on-TV apps call

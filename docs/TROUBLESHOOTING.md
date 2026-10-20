@@ -48,6 +48,7 @@ already masks tokens and keys, but check before you post).
 | The bar never appears | Auto info is off at `/setup`: use **Show on TV** on the status page. |
 | Pinned bar gone after a restart | It comes back by itself about 8 seconds after the watcher starts. If not, press **Show on TV** again and check the log. |
 | The bar vanishes when you switch between Live TV and apps | A pinned bar is restored within a moment. If it does not come back, check the log for "pinned bar went away". |
+| The TV's input picker or settings flicker or do not show with Show on TV on | The bar waits for those menus to close before it returns. If one still misbehaves, send the `/logs` lines around it: the "went away" lines show what the TV was running. |
 | A page on another web site or dashboard cannot read or change things | By design the setup page rejects settings saved from another site (the Origin must match the TV's address). The control addresses (`/info`, `/app`, `/tv/...`) are plain GETs with no password, so keep port 41101 on your home network. |
 
 ## The receiver
