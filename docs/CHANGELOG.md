@@ -3,6 +3,13 @@
 Newest first. Versions are tagged `vX.Y.Z`; the app version in `app/appinfo.json` is the source of truth. Release
 steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 
+## Unreleased
+
+### Fixed
+- A muted receiver stays muted when you switch between Live TV and an HDMI input. The TV re-syncs its own (unmuted)
+  state to the receiver over eARC at each switch, which un-muted it; the watcher now mutes it again if that happens
+  within 4 s of an input change. Not yet confirmed on a TV.
+
 ## 2.5.1
 
 ### Fixed
