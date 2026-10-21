@@ -58,6 +58,9 @@ test failure.
    - the GHCR tags exist (`X.Y.Z`, `X.Y`, `latest`).
 6. Replace the auto-generated release notes with a short written summary (what's new, fixes, known issues), and make
    sure [CHANGELOG.md](CHANGELOG.md) has the entry for this version before you tag.
+7. The releases page keeps only the current stable release (since 2026-10-22). Once the new one is verified, delete the
+   previous release with `gh release delete vX.Y.Z` (no `--cleanup-tag`: tags stay, so compare links and the
+   changelog still work), and make the new notes a roll-up of the minor series so nothing is lost with the old page.
 
 Tags are not moved or reused. A fix ships as the next patch version.
 

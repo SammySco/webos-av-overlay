@@ -28,7 +28,9 @@ tagging and the checks to run after a tag. On Windows, Git's `sh` can fail to fi
 
 ## What the watcher does
 - Volume: read from the receiver (`getStatus`), event-driven through the Yamaha Extended Control UDP subscription
-  (port 41100) with a 2 s poll fallback. Shows half-steps and "Mute".
+  (port 41100) with a 2 s poll fallback. Shows half-steps and "Mute". The TV re-syncs its (unmuted) state over eARC
+  on an input switch; if the receiver loses its mute within 4 s of a switch (either order) the watcher mutes it again
+  (`remuteAmp`, `MUTE_WINDOW`).
 - Info bar (stacked left-justified lines; appears 1 s after a change, shows 5 s; the app closes itself when nothing is
   showing, so Show is a cold start; no fades): sound program (and decoder), source, receiver audio (format, rate, bit
   depth, bitrate), Plex or Jellyfin stream, receiver processing, video (size, rate, HDR) and colour. "---" readings
@@ -107,7 +109,8 @@ tagging and the checks to run after a tag. On Windows, Git's `sh` can fail to fi
   to eARC, apart from the Spotify guard.
 
 ## Releases, in short
-Versions live in `app/appinfo.json` (the source of truth for IPK and archive names), `settings/appinfo.json`,
+The releases page keeps only the current stable release; delete the previous one (keep its tag) once the new one is
+verified. Versions live in `app/appinfo.json` (the source of truth for IPK and archive names), `settings/appinfo.json`,
 `package.json`, `package-lock.json` (lines 3 and 9) and the issue-form examples. Bump them when cutting the release,
 not earlier, and add the version's entry to `docs/CHANGELOG.md` first. A `v*` tag publishes the release (tarball, both IPKs, webosbrew manifest, Android APK) and the Docker image.
 After any tag check the assets and that

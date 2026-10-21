@@ -226,7 +226,7 @@ docker compose up -d --build
 
 To use the prebuilt image instead of building (published for each tagged release, amd64, arm64 and arm/v7), replace
 `build: .` in `docker-compose.yml` with `image: ghcr.io/sammysco/webos-av-overlay:latest` and run
-`docker compose up -d`. Pin a version (`:2.5.0`) if you want updates to be deliberate.
+`docker compose up -d`. Pin a version (`:2.5.2`) if you want updates to be deliberate.
 
 This builds the image (≈ 30 s the first time) and starts the container in the
 background.
