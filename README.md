@@ -58,6 +58,8 @@ the receiver's volume and mute state, the sound program, the audio format actual
 </table>
 
 - **Volume popup** (bottom-right) whenever the receiver's volume or mute changes, including half steps.
+- **Mute stays muted**: switching the TV between Live TV and an HDMI input makes the TV re-sync its own (unmuted)
+  state to the receiver over eARC; the watcher notices and mutes the receiver again.
 - **Info bar** with the sound program, volume, source, audio format, Plex or Jellyfin stream details (optional),
   amp processing, video format/HDR and colour. Every line starts with its name ("Video: ..."). It appears when
   something changes (switchable), on demand, or pinned on screen. A volume change only shows the volume popup; the
@@ -69,13 +71,15 @@ the receiver's volume and mute state, the sound program, the audio format actual
   off to hide it from the TV bar, drag it to move it. The setup page has the same list of rows.
 - **Status page** at `http://<tv>:41101/status` with toggle switches for Show on TV, live view, and Auto info. The Show
   on TV choice is remembered, including across a TV restart: the bar comes back about 8 seconds after the watcher
-  starts. A pinned bar also comes back after you switch between Live TV and apps on the TV. Each row has an **i** icon
+  starts. A pinned bar also comes back after you switch between Live TV and apps on the TV, and waits while a TV menu
+  (quick settings, input picker, home screen) is open so it does not close or flicker it. Each row has an **i** icon
   (hover or click) that explains it; see [docs/INFO-ROWS.md](docs/INFO-ROWS.md).
 - **Magic Remote friendly**: the pointer keeps working over native apps while the bar is on screen, and pointer
   movement does not dismiss the bar.
 - **Log page** at `http://<tv>:41101/logs`: the watcher's log with a live view, a text filter and a download
   (`/logs.txt?lines=N`). Tokens and keys are masked, and other websites cannot read it.
 - **Setup page** at `http://<tv>:41101/setup`, also opened by the **AV Overlay Settings** icon on the TV home screen.
+  On the TV it works with the remote's arrow keys and OK (open a section, move between controls, tick a box).
 - **Sound program per app**: pick the receiver's sound program for Live TV, each HDMI input, webOS apps (Netflix,
   YouTube, ...), Plex players and, with a small Home Assistant automation, each Apple TV app. See
   [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md).
@@ -98,8 +102,8 @@ Jellyfin over your home network, and serves a status page, a setup page and a lo
 **What it does not do**
 - It does not root your TV, and it is not an official LG or Yamaha product. Rooting is covered by the
   [webOS Brew](https://www.webosbrew.org/) community, not here.
-- It never sets the receiver's volume. Apart from the optional sound-program rules and the Spotify guard, it only reads
-  from the receiver.
+- It never sets the receiver's volume. Apart from the optional sound-program rules, the Spotify guard and putting
+  back a mute that a TV input switch undid, it only reads from the receiver.
 - It supports Yamaha receivers with the Extended Control API only. Other receiver brands are not supported; the TV-side
   rows work without any receiver.
 - It has no accounts and no password, and is for your home network only. Do not expose port 41101 to the internet.
@@ -436,7 +440,8 @@ the per-app sound-program rules. Everything the TV itself can tell you works wit
 - Tested on an LG C2 (webOS 11.2) with a Yamaha receiver: the Audio (TV) readings above, on an Apple TV over HDMI, on
   Live TV and in native Netflix. The receiver-free layout of the bar is tested in code only; it has not yet been run
   on a TV with no receiver at all. Reports are welcome.
-- Other LG models and webOS versions may name these TV services differently; if Audio (TV) stays empty, check the log
+- On older webOS versions, where the TV's audio service gives no pipeline ID, the HDMI reading is requested by port
+  alone. Other LG models and webOS versions may name these TV services differently; if Audio (TV) stays empty, check the log
   (`/tmp/earc-volume-overlay.log`) and open an issue with your TV model and webOS version.
 - There is still no receiver-side information: without a receiver you cannot see what reaches it after the TV.
 

@@ -108,7 +108,8 @@ Then it starts the service. Check it:
   is remembered, so the bar comes back after a TV restart too.
 - Open `http://TV_IP:41101/logs` to see the watcher's log (live view, text filter, download as text).
 - Open `http://TV_IP:41101/setup` (or the **AV Overlay Settings** icon on the TV's home screen) to change anything
-  later. The settings app should open the setup page and show `AV Overlay v<version>` at the bottom.
+  later. The settings app should open the setup page and show `AV Overlay v<version>` at the bottom. On the TV, use
+  the arrow keys and OK to open sections, move between controls and tick boxes.
 - Opening the **eARC Volume Overlay** app itself shows a page with Enable, Disable and Test overlay and the message
   `Denied method call "exec"`. That is expected: webOS does not let that app call the Homebrew Channel's root
   service. The installer has already enabled and started the watcher, so ignore those buttons.
@@ -257,4 +258,5 @@ and the status, setup and log pages), and `scripts\install.ps1` was run from a r
 `build\`, no Node or Git) with `-NonInteractive`: both apps installed and the watcher was enabled. Not tested by this
 project: the rooting itself (section 3), double-clicking `Install-AVOverlay.cmd` (it only starts `install.ps1`), Home
 Assistant versions other than a recent one, receivers other than the RX-V485, Docker on this release, and a TV with no
-receiver at all.
+receiver at all. 2.5.2 runs on the same TV; its mute fix was confirmed there. The 2.5.1 remote-key navigation of
+`/setup` and the Audio (TV) fallback for older webOS are not yet confirmed on other TVs.

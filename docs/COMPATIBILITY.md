@@ -18,7 +18,8 @@ own view of its input: on HDMI the codec, channel count and sample rate (read fr
 behind the hidden "HDMI status" menu), and on Live TV and LG apps the codec only. See the README section
 "Using it without a Yamaha receiver". Status: Audio (TV) is confirmed on the LG C2 above (Apple TV on HDMI, Live TV,
 native Netflix); the TV-only layout of the bar has been tested in code but not yet on a TV with no receiver, and other
-LG models may differ. Reports are welcome, especially from non-Yamaha setups.
+LG models may differ. Since 2.5.1, if the TV's audio service gives no pipeline ID (older webOS), the HDMI reading is
+requested by port alone; this fallback is not yet confirmed on another model. Reports are welcome, especially from non-Yamaha setups.
 
 ## Yamaha receivers
 
