@@ -3,7 +3,7 @@
 Newest first. Versions are tagged `vX.Y.Z`; the app version in `app/appinfo.json` is the source of truth. Release
 steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 
-## Unreleased
+## 2.5.3
 
 ### Fixed
 - Audio (TV) row: the raw TV replies are now logged once per failing step, not once in total. On a C1 (webOS 6) the
