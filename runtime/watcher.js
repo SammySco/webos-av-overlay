@@ -874,23 +874,27 @@ function fetchSignal() {
 // HDMI inputs: the TV's HDMI diagnostics ("HDMI status" in the hidden menu) give codec, channel count and rate of the
 // incoming stream, with or without a receiver. Other sources (Live TV, LG apps): only the codec the TV decodes.
 var tvAudioInFlight = false, tvAudioKey = null;
-var TV_CODEC = { pcm: 'PCM', ac3: 'Dolby Digital', eac3: 'Dolby Digital Plus', aac: 'AAC', dts: 'DTS', mp3: 'MP3', truehd: 'TrueHD' };
+var TV_CODEC = { pcm: 'PCM', ac3: 'Dolby Digital', eac3: 'Dolby Digital Plus', aac: 'AAC', dts: 'DTS', mp3: 'MP3', truehd: 'TrueHD', mat: 'Dolby MAT' };
 function setTvAudio(text) {
   state.tvAudio = text;
   var key = text || '';
   if (tvAudioKey === null) { tvAudioKey = key; return; } // baseline: no pop-up
   if (key !== tvAudioKey) { tvAudioKey = key; scheduleInfo('LG TV audio ' + (text || 'none')); }
 }
-var tvAudioLogged = false; // log the raw replies once when nothing usable comes back, to diagnose other models
+// Log the raw replies once per failing step when nothing usable comes back, to diagnose other models. Per step, so
+// the fallback's reply is not hidden behind the first failure (the C1 only ever logged its missing audio call).
+var tvAudioLogged = {};
 function tvAudioDiag(what, obj) {
-  if (tvAudioLogged) return;
-  tvAudioLogged = true;
+  if (tvAudioLogged[what]) return;
+  tvAudioLogged[what] = true;
   log('Audio (TV): ' + what + ': ' + JSON.stringify(obj).slice(0, 400));
 }
 function parseHdmiAudio(d) {
   var line = d && d.HDMIdiagnostics && d.HDMIdiagnostics.general && d.HDMIdiagnostics.general.sublist_3;
-  var f = /^(.+?)\s+(\d+)Ch\s+(\d+)Hz/.exec(line || ''); // e.g. "PCM 8Ch 48000Hz"
-  return f ? f[1] + ' · ' + f[2] + ' ch · ' + (Number(f[3]) / 1000) + ' kHz' : null;
+  var f = /^(.+?)\s+(\d+)\s*ch\s+(\d+)\s*Hz/i.exec(line || ''); // e.g. "PCM 8Ch 48000Hz", "MAT 9ch 192000Hz"
+  if (!f) return null;
+  var codec = /^mat$/i.test(f[1]) ? 'Dolby MAT' : f[1]; // MAT: how an Apple TV sends Atmos
+  return codec + ' · ' + f[2] + ' ch · ' + (Number(f[3]) / 1000) + ' kHz';
 }
 function fetchTvAudio() {
   if (!tvAudio || tvAudioInFlight) return;

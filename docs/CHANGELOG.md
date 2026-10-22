@@ -3,6 +3,14 @@
 Newest first. Versions are tagged `vX.Y.Z`; the app version in `app/appinfo.json` is the source of truth. Release
 steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 
+## Unreleased
+
+### Fixed
+- Audio (TV) row: the raw TV replies are now logged once per failing step, not once in total. On a C1 (webOS 6) the
+  missing audio call used up the only log line, so the HDMI fallback's reply was never shown. The HDMI audio line is
+  also read case-insensitively ("9ch" as well as "9Ch"), and MAT (how an Apple TV sends Atmos) shows as "Dolby MAT".
+  Not yet confirmed on a C1.
+
 ## 2.5.2
 
 ### Fixed

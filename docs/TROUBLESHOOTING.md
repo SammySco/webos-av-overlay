@@ -62,7 +62,7 @@ already masks tokens and keys, but check before you post).
 | The receiver un-mutes when you switch between Live TV and an HDMI input | The TV re-syncs its own (unmuted) state over eARC at each switch. The watcher mutes the receiver again if that happens within 4 seconds of an input change; the log says "un-muted by the input switch". If it stays un-muted, the receiver's events are probably not arriving (see the next rows) or the switch took longer than 4 seconds. |
 | Volume changes are slow to show | Events from the receiver are not reaching the watcher, so it is using the 2 second poll. Docker: `network_mode: host` is needed (Linux only). |
 | The receiver changes sound program at odd times | Check the "Right now" line and the rules at `/setup`; turn **Switch the sound program automatically** off to compare. |
-| Audio (TV) row missing | Is **Show "Audio (TV)"** ticked at `/setup`? It is off by default. Then change the input or press **Show on TV**: it appears once the TV reports a value. On older webOS the HDMI reading is requested by port when the TV gives no pipeline ID, and the TV's raw replies are logged once if nothing usable comes back. If it stays empty, open an issue with your TV model, webOS version and those log lines. |
+| Audio (TV) row missing | Is **Show "Audio (TV)"** ticked at `/setup`? It is off by default. Then change the input or press **Show on TV**: it appears once the TV reports a value. On older webOS the HDMI reading is requested by port when the TV gives no pipeline ID, and the TV's raw replies are logged once for each step that gives nothing usable (lines starting `Audio (TV):` at `/logs`). If it stays empty, open an issue with your TV model, webOS version and those log lines. |
 
 ## Plex, Jellyfin, Home Assistant
 
