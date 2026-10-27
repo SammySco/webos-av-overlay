@@ -57,12 +57,14 @@ actions:
             data:
               name: ""
     default:
-      - wait_template: "{{ is_state(atv, ['playing', 'paused']) }}"
-        timeout: "00:01:30"
-        continue_on_timeout: true
+      - condition: template
+        value_template: "{{ state_attr(atv, 'app_name') | default('', true) | length > 0 }}"
+      - action: rest_command.av_overlay_app
+        data:
+          name: "{{ state_attr(atv, 'app_name') }}"
 ```
 
-An empty name clears the app, and it is only sent when the Apple TV is off, asleep or unavailable for 90 seconds. While it is `idle` (which is what a long pause or the home screen looks like) the last app is kept, so pausing Netflix does not drop the App row, reset the sound program or re-pop the bar. The watcher still forgets a pushed name after 12 hours. If you put this in `automations.yaml` directly, make it a list item: start with
+An empty name clears the app, and it is only sent when the Apple TV is off, asleep or unavailable for 90 seconds. While it is `idle` or `on` the app name is still sent if there is one, because some apps never report `playing`: YouTube opens as `idle` with `app_name: YouTube` and often stays that way. An idle Apple TV with no app name (a long pause or the home screen can look like that) keeps the last app, so pausing Netflix does not drop the App row, reset the sound program or re-pop the bar. The watcher still forgets a pushed name after 12 hours. An automation set up from an older copy of this guide waited for `playing` or `paused` here and never sent YouTube; replace the `default:` block with the one above. If you put this in `automations.yaml` directly, make it a list item: start with
 `- id: '<any unique id>'` and indent everything else by two spaces.
 On older Home Assistant versions use `platform:` and `service:` in place of `trigger:`/`action:`.
 

@@ -102,7 +102,9 @@ tagging and the checks to run after a tag. On Windows, Git's `sh` can fail to fi
 - Do not add a `Sec-Fetch-Site` / cross-site guard to the control GETs. The on-TV apps call `http://127.0.0.1`, which
   browsers treat as trustworthy, so they send `cross-site` themselves; a guard refused Quick Access. And do not narrow
   CORS without checking the settings app, which reads `/status.json` cross-origin. See `docs/RELEASE-PROCESS.md`.
-- The YouTube tvOS app often does not report now-playing to Home Assistant.
+- The YouTube tvOS app often does not report now-playing to Home Assistant: the Apple TV shows `idle` with
+  `app_name: YouTube`. The automation in `docs/HOME-ASSISTANT.md` sends the app name while `idle`/`on` too (not only
+  `playing`/`paused`) for this reason; do not narrow it back.
 - Spotify Connect to an Apple TV only works while the Spotify tvOS app is running.
 - Amp-based sources (net radio, TIDAL direct, AirPlay): the context key is the receiver input, so pushed app names are
   remembered but only applied once the receiver is back on the TV input. It never switches itself from its own source

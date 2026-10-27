@@ -71,6 +71,8 @@ already masks tokens and keys, but check before you post).
 | **Test Plex** or **Test Jellyfin** fails | URL (`http://SERVER:32400` or `:8096`), the token or API key, and that the server is reachable from the TV (or from the Docker host). |
 | The wrong Plex or Jellyfin session shows | Set the **Player IP** (Plex) or **Device / client name** (Jellyfin) at `/setup`. |
 | App not detected on an Apple TV | The Home Assistant automation is not firing: check its trace, the `rest_command` name, and the "app pushed" line in the log. |
+| The App row stays on the previous Apple TV app when you open YouTube | The automation is from an older copy of HOME-ASSISTANT.md that only sent the name while the Apple TV was `playing` or `paused`; YouTube usually reports `idle`. Replace its `default:` block with the current one. |
+| Home Assistant's Apple TV entity no longer changes (wrong app, old track, `last_updated` long ago) | The Apple TV integration can stop receiving updates after it reconnects. Reload it (Settings → Devices & services → Apple TV → ⋮ → Reload); the right app is sent within a few seconds. |
 | A dashboard button does nothing | Call the overlay with a `rest_command` from Home Assistant itself, or embed the status page in an iframe card. See HOME-ASSISTANT.md. |
 
 ## Docker
