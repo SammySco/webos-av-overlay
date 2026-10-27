@@ -3,6 +3,13 @@
 Newest first. Versions are tagged `vX.Y.Z`; the app version in `app/appinfo.json` is the source of truth. Release
 steps are in [RELEASE-PROCESS.md](RELEASE-PROCESS.md).
 
+## Unreleased
+
+### Fixed
+- Home Assistant guide: the Apple TV automation now also sends the app name while the Apple TV is `idle`, so
+  YouTube (which opens as idle and often never reports playing) reaches the overlay. If you set up the automation
+  from an earlier copy of HOME-ASSISTANT.md, replace its `default:` block. Confirmed on a TV.
+
 ## 2.5.3
 
 ### Fixed
